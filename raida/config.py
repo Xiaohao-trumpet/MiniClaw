@@ -29,11 +29,11 @@ class Settings(BaseModel):
     require_confirmation_for_overwrite: bool = True
 
     telegram_bot_token: str = ""
-    telegram_webhook_secret: str = ""
-    telegram_webhook_path: str = "/messages/telegram"
     telegram_allowed_chat_ids: List[str] = Field(default_factory=list)
     telegram_invite_code: str = ""
     telegram_require_registration: bool = True
+    telegram_poll_timeout_seconds: int = 30
+    telegram_poll_retry_seconds: int = 3
 
 
 def _parse_allowed_workdirs(raw: str | None) -> List[Path]:
@@ -63,9 +63,9 @@ def get_settings() -> Settings:
         require_confirmation_for_network=os.getenv("RAIDA_CONFIRM_NETWORK", "true").lower() == "true",
         require_confirmation_for_overwrite=os.getenv("RAIDA_CONFIRM_OVERWRITE", "true").lower() == "true",
         telegram_bot_token=os.getenv("RAIDA_TELEGRAM_BOT_TOKEN", ""),
-        telegram_webhook_secret=os.getenv("RAIDA_TELEGRAM_WEBHOOK_SECRET", ""),
-        telegram_webhook_path=os.getenv("RAIDA_TELEGRAM_WEBHOOK_PATH", "/messages/telegram"),
         telegram_allowed_chat_ids=_parse_string_list(os.getenv("RAIDA_TELEGRAM_ALLOWED_CHAT_IDS")),
         telegram_invite_code=os.getenv("RAIDA_TELEGRAM_INVITE_CODE", ""),
         telegram_require_registration=os.getenv("RAIDA_TELEGRAM_REQUIRE_REGISTRATION", "true").lower() == "true",
+        telegram_poll_timeout_seconds=max(1, int(os.getenv("RAIDA_TELEGRAM_POLL_TIMEOUT", "30"))),
+        telegram_poll_retry_seconds=max(1, int(os.getenv("RAIDA_TELEGRAM_POLL_RETRY", "3"))),
     )

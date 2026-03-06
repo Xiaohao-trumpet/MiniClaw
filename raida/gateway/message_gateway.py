@@ -17,6 +17,9 @@ class MessageGateway:
     def start(self) -> None:
         self.adapter.start_listening(self.receive_message)
 
+    def stop(self) -> None:
+        self.adapter.stop()
+
     def set_message_handler(self, handler: Callable[[str, str], None]) -> None:
         self._handler = handler
 

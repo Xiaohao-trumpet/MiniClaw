@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import threading
+import time
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
@@ -35,6 +37,10 @@ class TelegramAdapter(ABC):
         """Register callback used by the gateway."""
 
     @abstractmethod
+    def stop(self) -> None:
+        """Stop background adapter workers."""
+
+    @abstractmethod
     def handle_update(self, update: Dict[str, Any]) -> bool:
         """Handle one Telegram update payload."""
 
@@ -60,6 +66,9 @@ class MockTelegramAdapter(TelegramAdapter):
     def start_listening(self, handler: Callable[[str, str], None]) -> None:
         self._handler = handler
         logger.info("MockTelegramAdapter is active.")
+
+    def stop(self) -> None:
+        return
 
     def push_message(self, user_id: str, message: str) -> None:
         if not self._handler:
@@ -92,16 +101,43 @@ class MockTelegramAdapter(TelegramAdapter):
 
 
 class TelegramBotApiAdapter(TelegramAdapter):
-    """Telegram Bot API adapter (webhook mode)."""
+    """Telegram Bot API adapter (long polling mode)."""
 
-    def __init__(self, bot_token: str, timeout_seconds: int = 30) -> None:
+    def __init__(
+        self,
+        bot_token: str,
+        request_timeout_seconds: int = 30,
+        poll_timeout_seconds: int = 30,
+        poll_retry_seconds: int = 3,
+        initial_update_offset: Optional[int] = None,
+        offset_commit: Optional[Callable[[int], None]] = None,
+    ) -> None:
         self._bot_token = bot_token.strip()
-        self._timeout_seconds = timeout_seconds
+        self._request_timeout_seconds = request_timeout_seconds
+        self._poll_timeout_seconds = max(1, poll_timeout_seconds)
+        self._poll_retry_seconds = max(1, poll_retry_seconds)
         self._handler: Optional[Callable[[str, str], None]] = None
+        self._next_update_offset: Optional[int] = initial_update_offset if (initial_update_offset and initial_update_offset > 0) else None
+        self._offset_commit = offset_commit
+        self._stop_event = threading.Event()
+        self._poll_thread: Optional[threading.Thread] = None
 
     def start_listening(self, handler: Callable[[str, str], None]) -> None:
         self._handler = handler
-        logger.info("TelegramBotApiAdapter is active.")
+        self._stop_event.clear()
+        self._disable_webhook_if_possible()
+        if self._poll_thread and self._poll_thread.is_alive():
+            logger.info("Telegram polling thread already running.")
+            return
+        self._poll_thread = threading.Thread(target=self._poll_loop, name="telegram-polling", daemon=True)
+        self._poll_thread.start()
+        logger.info("TelegramBotApiAdapter started long polling.")
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._poll_thread and self._poll_thread.is_alive():
+            self._poll_thread.join(timeout=5)
+        self._poll_thread = None
 
     def handle_update(self, update: Dict[str, Any]) -> bool:
         if not self._handler:
@@ -160,13 +196,77 @@ class TelegramBotApiAdapter(TelegramAdapter):
             file_path=file_path,
         )
 
+    def _poll_loop(self) -> None:
+        consecutive_failures = 0
+        while not self._stop_event.is_set():
+            try:
+                payload: Dict[str, Any] = {
+                    "timeout": self._poll_timeout_seconds,
+                    "allowed_updates": ["message", "callback_query"],
+                }
+                if self._next_update_offset is not None:
+                    payload["offset"] = self._next_update_offset
+
+                response = self._post_json(
+                    "getUpdates",
+                    payload,
+                    timeout_seconds=self._poll_timeout_seconds + 15,
+                )
+                updates = response.get("result", [])
+                if not isinstance(updates, list):
+                    raise RuntimeError(f"Unexpected getUpdates payload: {response}")
+
+                max_update_id: Optional[int] = None
+                for item in updates:
+                    if not isinstance(item, dict):
+                        continue
+                    update_id = item.get("update_id")
+                    if isinstance(update_id, int):
+                        max_update_id = update_id if max_update_id is None else max(max_update_id, update_id)
+
+                    try:
+                        self.handle_update(item)
+                    except Exception as exc:  # pragma: no cover - handler side effects
+                        logger.exception("Failed to process Telegram update: %s", exc)
+
+                if max_update_id is not None:
+                    self._next_update_offset = max_update_id + 1
+                    self._commit_offset(self._next_update_offset)
+
+                consecutive_failures = 0
+            except Exception as exc:
+                consecutive_failures += 1
+                wait_seconds = min(30, self._poll_retry_seconds * max(1, consecutive_failures))
+                logger.warning("Telegram polling failed (%s). Retry in %ss.", exc, wait_seconds)
+                if self._stop_event.wait(timeout=wait_seconds):
+                    break
+
+    def _disable_webhook_if_possible(self) -> None:
+        try:
+            self._post_json("deleteWebhook", {"drop_pending_updates": False})
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.warning("Failed to delete Telegram webhook before polling: %s", exc)
+
+    def _commit_offset(self, offset: int) -> None:
+        if not self._offset_commit:
+            return
+        try:
+            self._offset_commit(offset)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Failed to persist Telegram offset %s: %s", offset, exc)
+
     def _answer_callback_query(self, callback_query_id: str) -> None:
         try:
             self._post_json("answerCallbackQuery", {"callback_query_id": callback_query_id})
         except Exception as exc:  # pragma: no cover - best effort
             logger.warning("answerCallbackQuery failed: %s", exc)
 
-    def _post_json(self, method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _post_json(
+        self,
+        method: str,
+        payload: Dict[str, Any],
+        timeout_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = request.Request(
             self._build_url(method),
@@ -174,7 +274,7 @@ class TelegramBotApiAdapter(TelegramAdapter):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        return self._execute_request(req)
+        return self._execute_request(req, timeout_seconds=timeout_seconds)
 
     def _post_multipart(self, method: str, fields: Dict[str, str], file_field: str, file_path: str) -> Dict[str, Any]:
         if not os.path.isfile(file_path):
@@ -210,9 +310,10 @@ class TelegramBotApiAdapter(TelegramAdapter):
         )
         return self._execute_request(req)
 
-    def _execute_request(self, req: request.Request) -> Dict[str, Any]:
+    def _execute_request(self, req: request.Request, timeout_seconds: Optional[int] = None) -> Dict[str, Any]:
+        timeout = timeout_seconds if timeout_seconds is not None else self._request_timeout_seconds
         try:
-            with request.urlopen(req, timeout=self._timeout_seconds) as resp:
+            with request.urlopen(req, timeout=timeout) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
@@ -240,3 +341,4 @@ def _split_text(text: str, chunk_size: int) -> List[str]:
         chunks.append(raw[start:end])
         start = end
     return chunks
+

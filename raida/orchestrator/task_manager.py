@@ -73,6 +73,15 @@ class TaskManager:
                 )
                 """
             )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runtime_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
     def create_task(self, user_id: str, instruction: str, working_directory: str = "") -> Dict[str, Any]:
         task_id = str(uuid.uuid4())
@@ -296,3 +305,31 @@ class TaskManager:
                 "UPDATE users SET last_seen_at = ?, updated_at = ? WHERE user_id = ?",
                 (now, now, user_id),
             )
+
+    def set_runtime_state(self, key: str, value: str) -> None:
+        now = _utc_now()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO runtime_state(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, value, now),
+            )
+
+    def get_runtime_state(self, key: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM runtime_state WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return None
+        return str(row["value"])
+
+    def get_runtime_state_int(self, key: str) -> Optional[int]:
+        raw = self.get_runtime_state(key)
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Optional, Tuple
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from raida.agents.codex_backend import CodexBackend
@@ -31,20 +31,36 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = get_logger(__name__)
 
+_TELEGRAM_OFFSET_KEY = "telegram_next_update_offset"
 
 command_runner = CommandRunner()
+task_manager = TaskManager(settings.database_path)
+
+
+def _load_telegram_offset() -> Optional[int]:
+    return task_manager.get_runtime_state_int(_TELEGRAM_OFFSET_KEY)
+
+
+def _save_telegram_offset(offset: int) -> None:
+    task_manager.set_runtime_state(_TELEGRAM_OFFSET_KEY, str(offset))
 
 
 def _build_adapter() -> TelegramAdapter:
     if settings.telegram_bot_token.strip():
-        return TelegramBotApiAdapter(settings.telegram_bot_token)
+        return TelegramBotApiAdapter(
+            settings.telegram_bot_token,
+            request_timeout_seconds=30,
+            poll_timeout_seconds=settings.telegram_poll_timeout_seconds,
+            poll_retry_seconds=settings.telegram_poll_retry_seconds,
+            initial_update_offset=_load_telegram_offset(),
+            offset_commit=_save_telegram_offset,
+        )
     logger.warning("RAIDA_TELEGRAM_BOT_TOKEN is empty. Falling back to MockTelegramAdapter.")
     return MockTelegramAdapter()
 
 
 telegram_adapter = _build_adapter()
 gateway = MessageGateway(telegram_adapter)
-task_manager = TaskManager(settings.database_path)
 context_store = ContextStore(settings.task_data_dir)
 agent_backend = CodexBackend(settings.codex_cli_path, command_runner, settings.command_timeout_seconds)
 code_executor = CodeExecutor(settings, command_runner, agent_backend)
@@ -91,10 +107,11 @@ def _parse_command(raw: str) -> Tuple[str, str]:
 
 
 def _help_text() -> str:
+    register_usage = "/register <invite_code>" if settings.telegram_invite_code.strip() else "/register"
     return (
         "[RAIDA] Telegram commands:\n"
         "/start - show onboarding\n"
-        "/register <invite_code> - activate account\n"
+        f"{register_usage} - activate account\n"
         "/run <instruction> - create a task\n"
         "/pause <task_id> | /resume <task_id> | /cancel <task_id>\n"
         "/append <task_id> <instruction>\n"
@@ -106,12 +123,16 @@ def _help_text() -> str:
 
 def _welcome_text(user_id: str) -> str:
     status = task_manager.ensure_user(user_id).get("status", "pending")
-    reg_tip = ("send /register <invite_code>" if settings.telegram_invite_code.strip() else "send /register") if settings.telegram_require_registration else "registration not required"
+    reg_tip = (
+        ("send /register <invite_code>" if settings.telegram_invite_code.strip() else "send /register")
+        if settings.telegram_require_registration
+        else "registration not required"
+    )
     return (
         "[RAIDA] Welcome.\n"
         f"Current status: {status}.\n"
         f"To activate: {reg_tip}.\n"
-        "Then send: /run 打开 VSCode 并在当前项目运行测试"
+        "Then send: /run open VSCode and run tests in current project"
     )
 
 
@@ -157,7 +178,11 @@ def _ensure_active_user(user_id: str) -> Tuple[bool, str]:
         task_manager.touch_user(user_id)
         return True, "auto-activated"
 
-    return False, ("user not registered; send /register <invite_code>" if settings.telegram_invite_code.strip() else "user not registered; send /register")
+    return False, (
+        "user not registered; send /register <invite_code>"
+        if settings.telegram_invite_code.strip()
+        else "user not registered; send /register"
+    )
 
 
 def _list_user_tasks(user_id: str, limit: int = 10) -> dict:
@@ -307,27 +332,13 @@ async def _startup() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
+    gateway.stop()
     scheduler.stop()
 
 
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
-
-
-async def telegram_webhook(
-    payload: dict,
-    x_telegram_bot_api_secret_token: Optional[str] = Header(default=None),
-) -> dict:
-    expected_secret = settings.telegram_webhook_secret.strip()
-    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
-        raise HTTPException(status_code=401, detail="invalid telegram webhook secret")
-
-    handled = await asyncio.to_thread(telegram_adapter.handle_update, payload)
-    return {"ok": True, "handled": handled}
-
-
-app.add_api_route(settings.telegram_webhook_path, telegram_webhook, methods=["POST"])
 
 
 @app.post("/messages/telegram/mock")
@@ -406,5 +417,3 @@ async def confirm_latest(payload: UserConfirmRequest) -> dict:
 @app.get("/users")
 async def list_users(limit: int = 100) -> dict:
     return {"users": task_manager.list_users(limit=limit)}
-
-

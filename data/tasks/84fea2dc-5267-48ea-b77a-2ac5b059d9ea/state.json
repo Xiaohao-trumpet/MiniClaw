@@ -1,0 +1,12 @@
+{
+  "actions": [
+    {
+      "type": "codex_exec",
+      "instruction": "open vs code and show what we have in the folder"
+    }
+  ],
+  "cursor": 1,
+  "cancel_requested": false,
+  "pause_requested": false,
+  "working_directory": ""
+}
