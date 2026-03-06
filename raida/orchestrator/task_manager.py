@@ -12,7 +12,9 @@ from typing import Any, Dict, List, Optional
 
 TASK_STATUSES = {
     "pending",
+    "planning",
     "running",
+    "awaiting_confirmation",
     "waiting_confirmation",
     "completed",
     "failed",
@@ -194,7 +196,7 @@ class TaskManager:
                 WHERE task_id = ?
                 """,
                 (
-                    "waiting_confirmation",
+                    "awaiting_confirmation",
                     "awaiting user confirmation",
                     json.dumps(action, ensure_ascii=False),
                     reason,
@@ -220,11 +222,28 @@ class TaskManager:
                 """
                 SELECT *
                 FROM tasks
-                WHERE user_id = ? AND status = 'waiting_confirmation'
+                WHERE user_id = ? AND status IN ('awaiting_confirmation', 'waiting_confirmation')
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """,
                 (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        task = dict(row)
+        task["history"] = json.loads(task["history"]) if task.get("history") else []
+        return task
+
+    def get_waiting_confirmation_task(self, user_id: str, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT *
+                FROM tasks
+                WHERE user_id = ? AND task_id = ? AND status IN ('awaiting_confirmation', 'waiting_confirmation')
+                LIMIT 1
+                """,
+                (user_id, task_id),
             ).fetchone()
         if row is None:
             return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -27,12 +28,10 @@ class CodexBackend(AgentBackend):
         cwd: Path | None = None,
         on_output: Optional[Callable[[str], None]] = None,
     ) -> CommandResult:
-        escaped = instruction.replace('"', '\\"')
-        command = f'{self._codex_cli_path} exec "{escaped}"'
+        command = subprocess.list2cmdline([self._codex_cli_path, "exec", instruction])
         return self._runner.run(
             command=command,
             cwd=cwd,
             timeout_seconds=self._timeout_seconds,
             on_output=on_output,
         )
-

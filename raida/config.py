@@ -19,6 +19,7 @@ class Settings(BaseModel):
 
     database_path: Path = Field(default=Path("data/raida.db"))
     task_data_dir: Path = Field(default=Path("data/tasks"))
+    planner_prompt_file: Path = Field(default=Path("prompts/action_planner.md"))
     allowed_workdirs: List[Path] = Field(default_factory=lambda: [Path.cwd()])
 
     codex_cli_path: str = "codex"
@@ -56,6 +57,7 @@ def get_settings() -> Settings:
         port=int(os.getenv("RAIDA_PORT", "8000")),
         database_path=Path(os.getenv("RAIDA_DB_PATH", "data/raida.db")),
         task_data_dir=Path(os.getenv("RAIDA_TASK_DATA_DIR", "data/tasks")),
+        planner_prompt_file=Path(os.getenv("RAIDA_PLANNER_PROMPT_FILE", "prompts/action_planner.md")),
         allowed_workdirs=_parse_allowed_workdirs(os.getenv("RAIDA_ALLOWED_WORKDIRS")),
         codex_cli_path=os.getenv("RAIDA_CODEX_CLI_PATH", "codex"),
         command_timeout_seconds=int(os.getenv("RAIDA_COMMAND_TIMEOUT", "1800")),

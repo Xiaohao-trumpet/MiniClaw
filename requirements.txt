@@ -7,3 +7,4 @@ mss>=9.0.1
 pygetwindow>=0.0.9
 playwright>=1.48.0
 Pillow>=10.4.0
+pytest>=8.3.0

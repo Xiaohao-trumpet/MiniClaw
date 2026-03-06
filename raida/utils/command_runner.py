@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +38,8 @@ class CommandRunner:
         on_output: Optional[Callable[[str], None]] = None,
     ) -> CommandResult:
         started = time.monotonic()
-        collected: list[str] = []
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
         timed_out = False
 
         process = subprocess.Popen(
@@ -47,30 +49,50 @@ class CommandRunner:
             shell=True,
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             bufsize=1,
         )
 
         assert process.stdout is not None
-        while True:
-            line = process.stdout.readline()
-            if line:
-                collected.append(line)
-                if on_output:
-                    on_output(line.rstrip("\n"))
-            elif process.poll() is not None:
-                break
-            else:
-                time.sleep(0.05)
+        assert process.stderr is not None
 
+        def _read_stream(stream, sink: list[str], prefix: str = "") -> None:
+            while True:
+                line = stream.readline()
+                if not line:
+                    break
+                sink.append(line)
+                if on_output:
+                    on_output(f"{prefix}{line.rstrip()}")
+
+        stdout_thread = threading.Thread(
+            target=_read_stream,
+            args=(process.stdout, stdout_lines, ""),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=_read_stream,
+            args=(process.stderr, stderr_lines, "[stderr] "),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        while process.poll() is None:
             if timeout_seconds and (time.monotonic() - started) > timeout_seconds:
                 timed_out = True
                 process.kill()
                 break
+            time.sleep(0.05)
 
         returncode = process.wait()
-        stdout = "".join(collected)
-        stderr = "Command timed out." if timed_out else ""
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        if timed_out:
+            stderr = f"{stderr}\nCommand timed out.".strip()
 
         return CommandResult(
             command=command,
@@ -80,4 +102,3 @@ class CommandRunner:
             duration_seconds=time.monotonic() - started,
             timed_out=timed_out,
         )
-

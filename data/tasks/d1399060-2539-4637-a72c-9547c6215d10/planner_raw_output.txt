@@ -1,0 +1,90 @@
+# MiniClaw Action Planner Contract
+
+## 1) Purpose
+Define a stable interface for turning a user goal into an executable, auditable action plan for MiniClaw.
+
+## 2) Inputs
+The planner must accept:
+
+```json
+{
+  "request_id": "string",
+  "goal": "string",
+  "context": {
+    "cwd": "string",
+    "os": "string",
+    "constraints": ["string"],
+    "available_tools": ["string"]
+  },
+  "state": {
+    "known_facts": ["string"],
+    "completed_steps": ["string"],
+    "artifacts": ["string"]
+  }
+}
+```
+
+Required fields: `request_id`, `goal`, `context.cwd`, `available_tools`.
+
+## 3) Outputs
+The planner must return:
+
+```json
+{
+  "request_id": "string",
+  "plan_version": "1.0",
+  "objective": "string",
+  "steps": [
+    {
+      "id": "S1",
+      "action": "string",
+      "reason": "string",
+      "tool": "string|null",
+      "inputs": {},
+      "expected_result": "string",
+      "verification": "string",
+      "status": "pending|in_progress|completed|blocked"
+    }
+  ],
+  "risks": ["string"],
+  "assumptions": ["string"],
+  "done_criteria": ["string"],
+  "next_step": "step_id"
+}
+```
+
+## 4) Behavioral Rules
+1. Plans must be deterministic for the same input.
+2. Steps must be atomic and verifiable.
+3. Only use tools listed in `available_tools`.
+4. Respect all `constraints` (sandbox, policy, non-destructive operations).
+5. If blocked, output `status: "blocked"` with a concrete unblock condition.
+6. Never invent execution results.
+
+## 5) Error Contract
+On invalid input:
+
+```json
+{
+  "request_id": "string",
+  "error": {
+    "code": "INVALID_INPUT|MISSING_FIELD|UNSATISFIABLE_CONSTRAINT",
+    "message": "string",
+    "details": ["string"]
+  }
+}
+```
+
+## 6) Acceptance Criteria
+1. Every step has `verification`.
+2. `done_criteria` are measurable.
+3. `next_step` points to a valid pending step.
+4. No step violates declared constraints.
+5. Output is valid JSON and schema-compliant.
+
+## 7) Versioning
+- Contract version: `1.0`
+- Backward-compatible additions: new optional fields only
+- Breaking changes require version bump (`2.0+`)
+
+If you want, I can also generate this as `docs/action-planner-contract.md` plus a JSON Schema file.

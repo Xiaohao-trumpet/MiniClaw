@@ -1,0 +1,103 @@
+## MiniClaw Action Planner Contract (v1)
+
+### 1. Purpose
+Define a stable interface between caller components and the MiniClaw planner that converts current context into executable actions.
+
+### 2. Operation
+`POST /planner/plan`
+
+### 3. Request Contract
+```json
+{
+  "request_id": "uuid",
+  "session_id": "string",
+  "goal": {
+    "type": "string",
+    "description": "string",
+    "success_criteria": ["string"]
+  },
+  "context": {
+    "workspace": "string",
+    "files": [
+      {
+        "path": "string",
+        "summary": "string",
+        "version": "string"
+      }
+    ],
+    "state": {}
+  },
+  "constraints": {
+    "max_steps": 20,
+    "max_duration_sec": 300,
+    "allowed_tools": ["shell", "edit", "test"],
+    "forbidden_tools": ["network"],
+    "safety_rules": ["no_destructive_git"]
+  },
+  "preferences": {
+    "verbosity": "low|medium|high",
+    "style": "safe|balanced|aggressive"
+  }
+}
+```
+
+### 4. Response Contract
+```json
+{
+  "request_id": "uuid",
+  "plan_id": "uuid",
+  "status": "ok|needs_input|blocked|failed",
+  "summary": "string",
+  "steps": [
+    {
+      "id": "S1",
+      "title": "string",
+      "reason": "string",
+      "actions": [
+        {
+          "type": "read|run|edit|test|ask_user",
+          "target": "string",
+          "args": {},
+          "expected_output": "string"
+        }
+      ],
+      "dependencies": ["S0"],
+      "risk": "low|medium|high",
+      "rollback": "string"
+    }
+  ],
+  "assumptions": ["string"],
+  "open_questions": ["string"],
+  "estimated_cost": {
+    "steps": 5,
+    "runtime_sec": 120
+  }
+}
+```
+
+### 5. Invariants
+1. `request_id` must echo input.
+2. `steps` must be topologically valid (`dependencies` reference existing prior step IDs).
+3. No action may violate `forbidden_tools` or `safety_rules`.
+4. If required info is missing, return `status="needs_input"` with `open_questions`.
+5. If no safe plan exists, return `status="blocked"` with reason in `summary`.
+
+### 6. Error Contract
+```json
+{
+  "request_id": "uuid",
+  "status": "failed",
+  "error": {
+    "code": "INVALID_INPUT|CONSTRAINT_VIOLATION|INTERNAL_ERROR",
+    "message": "string",
+    "details": {}
+  }
+}
+```
+
+### 7. Versioning
+- Header: `X-Planner-Contract-Version: 1`
+- Backward-compatible additions only within v1 (new optional fields).
+- Breaking changes require v2 endpoint or version header.
+
+If you want, I can convert this into a repo-ready `docs/action-planner-contract.md` format with strict JSON Schema blocks next.

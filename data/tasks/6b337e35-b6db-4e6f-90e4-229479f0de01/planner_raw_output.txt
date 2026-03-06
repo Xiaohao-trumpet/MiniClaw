@@ -1,0 +1,14 @@
+OpenAI Codex v0.111.0 (research preview)
+--------
+workdir: F:\椤圭洰\MiniClaw
+model: gpt-5.3-codex
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\鍛ㄦ檽鏄奬.codex\memories]
+reasoning effort: high
+reasoning summaries: none
+session id: 019cc43d-a526-73e1-9756-c8781caefe75
+--------
+user
+# MiniClaw Action Planner Contract
+mcp startup: no servers

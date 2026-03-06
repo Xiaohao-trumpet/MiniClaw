@@ -30,6 +30,10 @@ class ContextStore:
         (task_dir / "patches").mkdir(parents=True, exist_ok=True)
         return task_dir
 
+    def artifact_path(self, task_id: str, name: str) -> Path:
+        self.init_task_context(task_id)
+        return self.task_dir(task_id) / name
+
     def conversation_file(self, task_id: str) -> Path:
         return self.task_dir(task_id) / "conversation.jsonl"
 
@@ -76,6 +80,31 @@ class ContextStore:
             f.write(patch_text)
         return patch_path
 
+    def write_json_artifact(self, task_id: str, name: str, payload: Any) -> Path:
+        target = self.artifact_path(task_id, name)
+        with target.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return target
+
+    def write_text_artifact(self, task_id: str, name: str, text: str) -> Path:
+        target = self.artifact_path(task_id, name)
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    def load_json_artifact(self, task_id: str, name: str, default: Any) -> Any:
+        target = self.artifact_path(task_id, name)
+        if not target.exists():
+            return default
+        with target.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def append_execution_record(self, task_id: str, record: Dict[str, Any]) -> Path:
+        current = self.load_json_artifact(task_id, "execution_log.json", default=[])
+        if not isinstance(current, list):
+            current = []
+        current.append(record)
+        return self.write_json_artifact(task_id, "execution_log.json", current)
+
     def load_state(self, task_id: str) -> Dict[str, Any]:
         self.init_task_context(task_id)
         path = self.state_file(task_id)
@@ -85,6 +114,8 @@ class ContextStore:
                 "cursor": 0,
                 "cancel_requested": False,
                 "pause_requested": False,
+                "confirmation_granted_for_cursor": None,
+                "pending_instructions": [],
                 "working_directory": "",
             }
         with path.open("r", encoding="utf-8") as f:
@@ -102,4 +133,3 @@ class ContextStore:
             if child.is_file():
                 artifacts.append(child)
         return sorted(artifacts)
-

@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 
 from raida.agents.codex_backend import CodexBackend
 from raida.config import get_settings
-from raida.executors.code_executor import CodeExecutor
 from raida.executors.desktop_executor import DesktopExecutor
 from raida.executors.executor_router import ExecutorRouter
+from raida.executors.system_executor import SystemExecutor
 from raida.gateway.message_gateway import MessageGateway
 from raida.gateway.telegram_adapter import (
     MockTelegramAdapter,
@@ -23,6 +23,7 @@ from raida.orchestrator.context_store import ContextStore
 from raida.orchestrator.reporter import Reporter
 from raida.orchestrator.task_manager import TaskManager
 from raida.orchestrator.task_scheduler import TaskScheduler
+from raida.planner.codex_planner import CodexPlanner
 from raida.safety.safety_guard import SafetyGuard
 from raida.utils.command_runner import CommandRunner
 from raida.utils.logger import get_logger, setup_logging
@@ -63,12 +64,13 @@ telegram_adapter = _build_adapter()
 gateway = MessageGateway(telegram_adapter)
 context_store = ContextStore(settings.task_data_dir)
 agent_backend = CodexBackend(settings.codex_cli_path, command_runner, settings.command_timeout_seconds)
-code_executor = CodeExecutor(settings, command_runner, agent_backend)
+planner = CodexPlanner(agent_backend=agent_backend, prompt_file=settings.planner_prompt_file)
+system_executor = SystemExecutor(settings=settings, command_runner=command_runner)
 desktop_executor = DesktopExecutor()
-executor_router = ExecutorRouter(code_executor, desktop_executor)
-safety_guard = SafetyGuard()
+executor_router = ExecutorRouter(system_executor=system_executor, desktop_executor=desktop_executor)
+safety_guard = SafetyGuard(settings=settings)
 reporter = Reporter(gateway)
-scheduler = TaskScheduler(task_manager, context_store, executor_router, safety_guard, reporter)
+scheduler = TaskScheduler(task_manager, context_store, planner, executor_router, safety_guard, reporter)
 
 _allowed_user_ids = {
     f"tg_{chat_id}" if not chat_id.startswith("tg_") else chat_id
@@ -117,7 +119,7 @@ def _help_text() -> str:
         "/append <task_id> <instruction>\n"
         "/tasks - list your latest tasks\n"
         "/task <task_id> - show task status\n"
-        "confirm - confirm risky action"
+        "confirm or /confirm <task_id> - confirm risky action"
     )
 
 
@@ -251,7 +253,7 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
             gateway.send_message(user_id, f"[RAIDA] {msg}")
             return {"ok": False, "detail": msg}
     elif command == "confirm":
-        raw = "confirm"
+        raw = f"/confirm {args}".strip() if args.strip() else "confirm"
     elif command == "pause":
         raw = f"pause {args}".strip()
     elif command == "resume":
@@ -274,7 +276,7 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
 
     lowered = raw.lower()
 
-    if lowered == "confirm":
+    if lowered == "confirm" or lowered.startswith("/confirm"):
         ok, detail = scheduler.confirm_latest_waiting(user_id, raw)
         gateway.send_message(user_id, f"[RAIDA] {detail}")
         return {"ok": ok, "detail": detail}

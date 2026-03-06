@@ -1,0 +1,9 @@
+{
+  "actions": [],
+  "cursor": 0,
+  "cancel_requested": false,
+  "pause_requested": false,
+  "confirmation_granted_for_cursor": null,
+  "pending_instructions": [],
+  "working_directory": ""
+}
