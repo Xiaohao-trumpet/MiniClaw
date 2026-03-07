@@ -82,6 +82,10 @@ class SystemExecutor:
         )
 
         self._append_task_output(task_dir=task_dir, result=result)
+        artifact_paths = []
+        for artifact in (task_dir / "stdout.txt", task_dir / "stderr.txt"):
+            if artifact.exists() and artifact.stat().st_size > 0:
+                artifact_paths.append(str(artifact))
         output = result.stdout.strip() or result.stderr.strip()
         summary = (
             f"Command succeeded (exit={result.returncode}): {command}"
@@ -93,7 +97,7 @@ class SystemExecutor:
             "status": "executed" if result.success else "failed",
             "summary": summary,
             "output": output,
-            "artifacts": [str(task_dir / "stdout.txt"), str(task_dir / "stderr.txt")],
+            "artifacts": artifact_paths,
             "metadata": {
                 "command": command,
                 "returncode": result.returncode,
@@ -222,12 +226,13 @@ class SystemExecutor:
     def _append_task_output(task_dir: Path, result: CommandResult) -> None:
         stdout_path = task_dir / "stdout.txt"
         stderr_path = task_dir / "stderr.txt"
-        stdout_path.parent.mkdir(parents=True, exist_ok=True)
-        with stdout_path.open("a", encoding="utf-8") as out:
-            if result.stdout:
+        if result.stdout:
+            stdout_path.parent.mkdir(parents=True, exist_ok=True)
+            with stdout_path.open("a", encoding="utf-8") as out:
                 out.write(result.stdout.rstrip("\n") + "\n")
-        with stderr_path.open("a", encoding="utf-8") as err:
-            if result.stderr:
+        if result.stderr:
+            stderr_path.parent.mkdir(parents=True, exist_ok=True)
+            with stderr_path.open("a", encoding="utf-8") as err:
                 err.write(result.stderr.rstrip("\n") + "\n")
 
     @staticmethod
@@ -240,4 +245,3 @@ class SystemExecutor:
             "artifacts": [],
             "metadata": {},
         }
-

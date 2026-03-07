@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
@@ -121,6 +122,15 @@ def _help_text() -> str:
         "/task <task_id> - show task status\n"
         "confirm or /confirm <task_id> - confirm risky action"
     )
+
+
+def _resolve_task_working_directory(working_directory: str) -> str:
+    candidate = working_directory.strip()
+    if candidate:
+        return candidate
+    if settings.allowed_workdirs:
+        return str(settings.allowed_workdirs[0].resolve())
+    return str(Path.cwd())
 
 
 def _welcome_text(user_id: str) -> str:
@@ -314,7 +324,8 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
         gateway.send_message(user_id, f"[RAIDA] {detail}")
         return {"ok": ok, "detail": detail, "task_id": task_id}
 
-    task = task_manager.create_task(user_id, raw, working_directory=working_directory)
+    effective_working_directory = _resolve_task_working_directory(working_directory)
+    task = task_manager.create_task(user_id, raw, working_directory=effective_working_directory)
     context_store.append_conversation(task["task_id"], "user", raw)
     reporter.task_created(user_id, task["task_id"], raw)
     scheduler.submit_task(task["task_id"])

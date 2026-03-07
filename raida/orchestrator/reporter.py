@@ -106,6 +106,11 @@ class Reporter:
     def maybe_send_path(self, user_id: str, path: Optional[Path]) -> None:
         if path is None:
             return
+        if not path.exists() or not path.is_file():
+            return
+        if path.stat().st_size == 0:
+            logger.info("Skip sending empty artifact file: %s", path)
+            return
         if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             self.send_screenshot(user_id, path)
         else:

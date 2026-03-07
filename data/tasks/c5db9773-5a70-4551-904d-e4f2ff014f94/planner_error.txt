@@ -1,0 +1,4 @@
+kind: invalid_json
+message: Planner output is not valid JSON object.
+schema_like_detected: False
+schema_signals: 
