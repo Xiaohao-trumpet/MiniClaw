@@ -23,6 +23,7 @@ class Settings(BaseModel):
     allowed_workdirs: List[Path] = Field(default_factory=lambda: [Path.cwd()])
 
     codex_cli_path: str = "codex"
+    codex_skip_git_repo_check: bool = True
     command_timeout_seconds: int = 1800
     log_level: str = "INFO"
 
@@ -60,6 +61,7 @@ def get_settings() -> Settings:
         planner_prompt_file=Path(os.getenv("RAIDA_PLANNER_PROMPT_FILE", "prompts/action_planner.md")),
         allowed_workdirs=_parse_allowed_workdirs(os.getenv("RAIDA_ALLOWED_WORKDIRS")),
         codex_cli_path=os.getenv("RAIDA_CODEX_CLI_PATH", "codex"),
+        codex_skip_git_repo_check=os.getenv("RAIDA_CODEX_SKIP_GIT_REPO_CHECK", "true").lower() == "true",
         command_timeout_seconds=int(os.getenv("RAIDA_COMMAND_TIMEOUT", "1800")),
         log_level=os.getenv("RAIDA_LOG_LEVEL", "INFO").upper(),
         require_confirmation_for_network=os.getenv("RAIDA_CONFIRM_NETWORK", "true").lower() == "true",

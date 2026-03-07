@@ -1,0 +1,27 @@
+Collecting modelscope
+  Downloading modelscope-1.34.0-py3-none-any.whl.metadata (43 kB)
+Collecting filelock (from modelscope)
+  Downloading filelock-3.25.0-py3-none-any.whl.metadata (2.0 kB)
+Collecting requests>=2.25 (from modelscope)
+  Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)
+Requirement already satisfied: setuptools in /home/zhouxiaohao/miniconda3/envs/miniclaw/lib/python3.11/site-packages (from modelscope) (80.10.2)
+Collecting tqdm>=4.64.0 (from modelscope)
+  Downloading tqdm-4.67.3-py3-none-any.whl.metadata (57 kB)
+Collecting urllib3>=1.26 (from modelscope)
+  Downloading urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+Collecting charset_normalizer<4,>=2 (from requests>=2.25->modelscope)
+  Downloading charset_normalizer-3.4.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (39 kB)
+Requirement already satisfied: idna<4,>=2.5 in /home/zhouxiaohao/miniconda3/envs/miniclaw/lib/python3.11/site-packages (from requests>=2.25->modelscope) (3.11)
+Collecting certifi>=2017.4.17 (from requests>=2.25->modelscope)
+  Downloading certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+Downloading modelscope-1.34.0-py3-none-any.whl (6.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.1/6.1 MB 1.7 MB/s  0:00:03
+Using cached requests-2.32.5-py3-none-any.whl (64 kB)
+Downloading charset_normalizer-3.4.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (193 kB)
+Downloading urllib3-2.6.3-py3-none-any.whl (131 kB)
+Downloading certifi-2026.2.25-py3-none-any.whl (153 kB)
+Downloading tqdm-4.67.3-py3-none-any.whl (78 kB)
+Downloading filelock-3.25.0-py3-none-any.whl (26 kB)
+Installing collected packages: urllib3, tqdm, filelock, charset_normalizer, certifi, requests, modelscope
+
+Successfully installed certifi-2026.2.25 charset_normalizer-3.4.5 filelock-3.25.0 modelscope-1.34.0 requests-2.32.5 tqdm-4.67.3 urllib3-2.6.3

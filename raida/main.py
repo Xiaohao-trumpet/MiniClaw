@@ -64,7 +64,12 @@ def _build_adapter() -> TelegramAdapter:
 telegram_adapter = _build_adapter()
 gateway = MessageGateway(telegram_adapter)
 context_store = ContextStore(settings.task_data_dir)
-agent_backend = CodexBackend(settings.codex_cli_path, command_runner, settings.command_timeout_seconds)
+agent_backend = CodexBackend(
+    settings.codex_cli_path,
+    command_runner,
+    settings.command_timeout_seconds,
+    skip_git_repo_check=settings.codex_skip_git_repo_check,
+)
 planner = CodexPlanner(agent_backend=agent_backend, prompt_file=settings.planner_prompt_file)
 system_executor = SystemExecutor(settings=settings, command_runner=command_runner)
 desktop_executor = DesktopExecutor()
