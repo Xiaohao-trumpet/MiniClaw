@@ -430,6 +430,9 @@ class TaskScheduler:
         )
         self._record_action(task_id, cursor, action, status=status, summary=summary, success=success, result=result)
         self.reporter.action_result(user_id, task_id, status, summary)
+        action_type = str(action.get("action_type", ""))
+        if output and action_type in {"list_directory", "read_file", "run_command"}:
+            self.reporter.action_output(user_id, task_id, action_type, output)
 
         artifacts = result.get("artifacts", [])
         if isinstance(artifacts, list):

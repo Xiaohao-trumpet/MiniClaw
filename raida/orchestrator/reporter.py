@@ -64,6 +64,21 @@ class Reporter:
             f"[MiniClaw][{task_id}] Action {status}: {summary}",
         )
 
+    def action_output(self, user_id: str, task_id: str, action_type: str, output: str, max_chars: int = 3000) -> None:
+        text = output.strip()
+        if not text:
+            return
+        truncated = len(text) > max_chars
+        preview = text[:max_chars]
+        suffix = "\n...[truncated]" if truncated else ""
+        self.gateway.send_message(
+            user_id,
+            (
+                f"[MiniClaw][{task_id}] Action output ({action_type}):\n"
+                f"{preview}{suffix}"
+            ),
+        )
+
     def task_failed(self, user_id: str, task_id: str, error: str) -> None:
         self.gateway.send_message(
             user_id,
@@ -110,4 +125,3 @@ class Reporter:
         if suggested_next_steps.strip():
             lines.append(f"suggested_next_steps: {suggested_next_steps.strip()}")
         return "\n".join(lines)
-

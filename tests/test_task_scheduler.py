@@ -209,3 +209,57 @@ def test_planning_failure_marks_task_failed_and_writes_artifacts(tmp_path) -> No
     assert context_store.artifact_path(task["task_id"], "planner_raw.txt").exists()
     assert context_store.artifact_path(task["task_id"], "planner_cleaned.txt").exists()
     assert context_store.artifact_path(task["task_id"], "planner_error.txt").exists()
+
+
+def test_action_output_is_sent_to_gateway_for_list_directory(tmp_path) -> None:  # noqa: ANN001
+    plan = ActionPlan.model_validate(
+        {
+            "task_id": "t4",
+            "goal": "List files",
+            "actions": [
+                {
+                    "action_type": "list_directory",
+                    "args": {"path": "."},
+                    "reason": "Show directory entries.",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                }
+            ],
+            "final_response_style": "concise",
+            "planner_notes": "",
+        }
+    )
+
+    class OutputExecutorRouter(FakeExecutorRouter):
+        def execute_action(self, action: Dict[str, Any], working_directory, task_dir, on_output=None):  # noqa: ANN001, ARG002
+            self.calls += 1
+            if on_output:
+                on_output("listed directory")
+            return {
+                "success": True,
+                "status": "executed",
+                "summary": "Listed directory.",
+                "output": "dir\tMiniClaw\nfile\tREADME.md",
+                "artifacts": [],
+                "metadata": {},
+            }
+
+    settings = Settings(
+        database_path=tmp_path / "raida.db",
+        task_data_dir=tmp_path / "tasks",
+        allowed_workdirs=[tmp_path],
+    )
+    task_manager = TaskManager(settings.database_path)
+    context_store = ContextStore(settings.task_data_dir)
+    planner = FakePlanner([plan])
+    executor_router = OutputExecutorRouter()
+    safety_guard = SafetyGuard(settings=settings)
+    gateway = DummyGateway()
+    reporter = Reporter(gateway)
+    scheduler = TaskScheduler(task_manager, context_store, planner, executor_router, safety_guard, reporter)
+
+    task = task_manager.create_task("tg_4", "show files", working_directory=str(tmp_path))
+    scheduler._execute_task(task["task_id"])
+
+    assert any("Action output (list_directory)" in message for message in gateway.messages)
+    assert any("MiniClaw" in message for message in gateway.messages)

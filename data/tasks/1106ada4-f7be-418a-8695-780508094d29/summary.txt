@@ -1,0 +1,7 @@
+Final summary:
+planned_actions: 4
+executed_actions: 4
+successful_actions: 4
+failed_actions: 0
+blocked_actions: 0
+skipped_actions: 0
