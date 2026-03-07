@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from raida.agents.agent_backend import AgentBackend
 from raida.planner.action_models import ActionPlan
-from raida.planner.plan_parser import PlanParseError, parse_action_plan
+from raida.planner.plan_parser import PlanParseError, parse_action_plan_output
 from raida.utils.command_runner import CommandResult
 from raida.utils.logger import get_logger
 
@@ -19,9 +19,26 @@ logger = get_logger(__name__)
 class PlannerExecutionError(RuntimeError):
     """Raised when planner backend invocation fails."""
 
-    def __init__(self, message: str, raw_output: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        raw_output: str = "",
+        *,
+        cleaned_output: str = "",
+        parsed_json: Dict[str, Any] | None = None,
+        error_kind: str = "unknown",
+        cleanup_applied: bool = False,
+        schema_like_detected: bool = False,
+        schema_like_signals: Optional[List[str]] = None,
+    ) -> None:
         super().__init__(message)
         self.raw_output = raw_output
+        self.cleaned_output = cleaned_output
+        self.parsed_json = parsed_json
+        self.error_kind = error_kind
+        self.cleanup_applied = cleanup_applied
+        self.schema_like_detected = schema_like_detected
+        self.schema_like_signals = schema_like_signals or []
 
 
 @dataclass
@@ -30,6 +47,11 @@ class PlannerResult:
 
     plan: ActionPlan
     raw_output: str
+    cleaned_output: str
+    parsed_json: Dict[str, Any]
+    cleanup_applied: bool
+    schema_like_detected: bool
+    schema_like_signals: List[str]
     backend_result: CommandResult
 
 
@@ -74,8 +96,9 @@ class CodexPlanner:
         recent_conversation: Optional[List[dict]] = None,
     ) -> PlannerResult:
         logger.info(
-            "event=planner_request task_id=%s working_directory=%s instruction=%s",
+            "event=planner_request task_id=%s prompt_file=%s working_directory=%s instruction=%s",
             task_id,
+            str(self._prompt_file),
             working_directory,
             instruction,
         )
@@ -105,8 +128,40 @@ class CodexPlanner:
                 result.timed_out,
             )
         try:
-            plan = parse_action_plan(raw_output, task_id=task_id)
+            parse_result = parse_action_plan_output(raw_output, task_id=task_id)
         except PlanParseError as exc:
-            raise PlannerExecutionError(str(exc), raw_output=raw_output) from exc
-        logger.info("event=planner_parsed task_id=%s actions=%s", task_id, len(plan.actions))
-        return PlannerResult(plan=plan, raw_output=raw_output, backend_result=result)
+            logger.warning(
+                "event=planner_parse_failed task_id=%s kind=%s cleanup_applied=%s schema_like_detected=%s signals=%s",
+                task_id,
+                exc.kind,
+                exc.cleanup_applied,
+                exc.schema_like_detected,
+                "; ".join(exc.schema_like_signals[:6]),
+            )
+            raise PlannerExecutionError(
+                str(exc),
+                raw_output=raw_output,
+                cleaned_output=exc.cleaned_output,
+                parsed_json=exc.parsed_json,
+                error_kind=exc.kind,
+                cleanup_applied=exc.cleanup_applied,
+                schema_like_detected=exc.schema_like_detected,
+                schema_like_signals=exc.schema_like_signals,
+            ) from exc
+        logger.info(
+            "event=planner_parsed task_id=%s actions=%s cleanup_applied=%s schema_like_detected=%s",
+            task_id,
+            len(parse_result.plan.actions),
+            parse_result.cleanup_applied,
+            parse_result.schema_like_detected,
+        )
+        return PlannerResult(
+            plan=parse_result.plan,
+            raw_output=raw_output,
+            cleaned_output=parse_result.cleaned_output,
+            parsed_json=parse_result.parsed_json,
+            cleanup_applied=parse_result.cleanup_applied,
+            schema_like_detected=parse_result.schema_like_detected,
+            schema_like_signals=parse_result.schema_like_signals,
+            backend_result=result,
+        )

@@ -343,6 +343,11 @@ async def healthz() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
 @app.post("/messages/telegram/mock")
 async def telegram_mock_message(payload: TelegramMockMessageRequest) -> dict:
     return await asyncio.to_thread(

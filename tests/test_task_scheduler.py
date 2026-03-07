@@ -8,6 +8,7 @@ from raida.orchestrator.reporter import Reporter
 from raida.orchestrator.task_manager import TaskManager
 from raida.orchestrator.task_scheduler import TaskScheduler
 from raida.planner.action_models import ActionPlan
+from raida.planner.codex_planner import PlannerExecutionError
 from raida.safety.safety_guard import SafetyGuard
 from raida.utils.command_runner import CommandResult
 
@@ -37,6 +38,11 @@ class FakePlanner:
         return SimpleNamespace(
             plan=plan,
             raw_output=json.dumps(plan.model_dump(), ensure_ascii=False),
+            cleaned_output=json.dumps(plan.model_dump(), ensure_ascii=False),
+            parsed_json=plan.model_dump(),
+            cleanup_applied=False,
+            schema_like_detected=False,
+            schema_like_signals=[],
             backend_result=CommandResult(
                 command="codex exec",
                 returncode=0,
@@ -66,7 +72,11 @@ class FakeExecutorRouter:
         }
 
 
-def _build_scheduler(tmp_path, plan: ActionPlan) -> tuple[TaskScheduler, TaskManager, ContextStore, FakeExecutorRouter]:  # noqa: ANN001
+def _build_scheduler(
+    tmp_path,
+    plan: ActionPlan,
+    planner_override=None,
+) -> tuple[TaskScheduler, TaskManager, ContextStore, FakeExecutorRouter]:  # noqa: ANN001
     settings = Settings(
         database_path=tmp_path / "raida.db",
         task_data_dir=tmp_path / "tasks",
@@ -74,7 +84,7 @@ def _build_scheduler(tmp_path, plan: ActionPlan) -> tuple[TaskScheduler, TaskMan
     )
     task_manager = TaskManager(settings.database_path)
     context_store = ContextStore(settings.task_data_dir)
-    planner = FakePlanner([plan])
+    planner = planner_override or FakePlanner([plan])
     executor_router = FakeExecutorRouter()
     safety_guard = SafetyGuard(settings=settings)
     reporter = Reporter(DummyGateway())
@@ -109,6 +119,9 @@ def test_task_transitions_to_completed(tmp_path) -> None:  # noqa: ANN001
     assert updated["status"] == "completed"
     assert executor_router.calls == 1
     assert context_store.artifact_path(task["task_id"], "plan.json").exists()
+    assert context_store.artifact_path(task["task_id"], "execution_plan.json").exists()
+    assert context_store.artifact_path(task["task_id"], "planner_raw.txt").exists()
+    assert context_store.artifact_path(task["task_id"], "planner_cleaned.txt").exists()
     assert context_store.artifact_path(task["task_id"], "execution_log.json").exists()
     assert context_store.artifact_path(task["task_id"], "summary.txt").exists()
 
@@ -149,3 +162,50 @@ def test_task_waits_for_confirmation_then_resumes(tmp_path) -> None:  # noqa: AN
     assert done["status"] == "completed"
     assert executor_router.calls == 1
 
+
+def test_planning_failure_marks_task_failed_and_writes_artifacts(tmp_path) -> None:  # noqa: ANN001
+    plan = ActionPlan.model_validate(
+        {
+            "task_id": "t3",
+            "goal": "placeholder",
+            "actions": [
+                {
+                    "action_type": "respond_only",
+                    "args": {"message": "placeholder"},
+                    "reason": "placeholder",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                }
+            ],
+            "final_response_style": "concise",
+            "planner_notes": "",
+        }
+    )
+
+    class FailingPlanner:
+        def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+            raise PlannerExecutionError(
+                "Planner returned a schema/contract instead of a runtime ActionPlan instance.",
+                raw_output='{"goal":{"type":"string"}}',
+                cleaned_output='{"goal":{"type":"string"}}',
+                parsed_json={"goal": {"type": "string"}},
+                error_kind="schema_like_output",
+                schema_like_detected=True,
+                schema_like_signals=["goal.type uses schema type 'string'"],
+            )
+
+    scheduler, task_manager, context_store, executor_router = _build_scheduler(
+        tmp_path,
+        plan,
+        planner_override=FailingPlanner(),
+    )
+    task = task_manager.create_task("tg_3", "inspect project", working_directory=str(tmp_path))
+    scheduler._execute_task(task["task_id"])
+
+    failed = task_manager.get_task(task["task_id"])
+    assert failed is not None
+    assert failed["status"] == "failed"
+    assert executor_router.calls == 0
+    assert context_store.artifact_path(task["task_id"], "planner_raw.txt").exists()
+    assert context_store.artifact_path(task["task_id"], "planner_cleaned.txt").exists()
+    assert context_store.artifact_path(task["task_id"], "planner_error.txt").exists()

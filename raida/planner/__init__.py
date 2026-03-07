@@ -2,7 +2,7 @@
 
 from raida.planner.action_models import ActionPlan, PlannedAction
 from raida.planner.codex_planner import CodexPlanner, PlannerExecutionError, PlannerResult
-from raida.planner.plan_parser import PlanParseError, parse_action_plan
+from raida.planner.plan_parser import PlanParseError, PlanParseResult, parse_action_plan, parse_action_plan_output
 
 __all__ = [
     "ActionPlan",
@@ -11,5 +11,7 @@ __all__ = [
     "PlannerExecutionError",
     "PlannerResult",
     "PlanParseError",
+    "PlanParseResult",
     "parse_action_plan",
+    "parse_action_plan_output",
 ]

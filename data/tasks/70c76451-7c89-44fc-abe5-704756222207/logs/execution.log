@@ -1,0 +1,29 @@
+dir	.cache
+dir	.idea
+dir	.kiro
+dir	.vscode
+dir	CoCoSoDa
+dir	CodeBridge
+dir	CodeGen
+dir	CodeRAG
+dir	data
+dir	data_code
+dir	data_process
+dir	ELITE_code
+dir	idea_try
+dir	MiniClaw
+dir	SEAL4code
+dir	SEAL_third_revise
+dir	SEALafter10..1
+dir	src
+dir	ToolGen
+file	download.py
+file	download_hf.py
+file	extract_tokens_and_doc.py
+file	extracted_code.py
+file	gitdir_backup_2026-03-03.tar.gz
+file	github_extractor.py
+{
+  "message": "I will report the items found in the code_search folder based on the directory listing output.",
+  "next_action_plan": []
+}

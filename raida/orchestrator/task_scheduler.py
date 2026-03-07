@@ -323,20 +323,48 @@ class TaskScheduler:
                 self.task_manager.set_status(task_id, "failed", current_step="planning failed")
                 self.task_manager.append_history(task_id, {"type": "planning_error", "content": str(exc)})
                 raw_output = exc.raw_output if hasattr(exc, "raw_output") else ""
-                self.context_store.write_text_artifact(
-                    task_id,
-                    "planner_raw_output.txt",
-                    raw_output or str(exc),
+                cleaned_output = exc.cleaned_output if hasattr(exc, "cleaned_output") else ""
+                parsed_json = exc.parsed_json if hasattr(exc, "parsed_json") else None
+                error_kind = exc.error_kind if hasattr(exc, "error_kind") else "unknown"
+                schema_signals = exc.schema_like_signals if hasattr(exc, "schema_like_signals") else []
+
+                self.context_store.write_text_artifact(task_id, "planner_raw.txt", raw_output or str(exc))
+                self.context_store.write_text_artifact(task_id, "planner_raw_output.txt", raw_output or str(exc))
+                self.context_store.write_text_artifact(task_id, "planner_cleaned.txt", cleaned_output or "")
+                if isinstance(parsed_json, dict):
+                    self.context_store.write_json_artifact(task_id, "plan.json", parsed_json)
+                error_text = (
+                    f"kind: {error_kind}\n"
+                    f"message: {str(exc)}\n"
+                    f"schema_like_detected: {bool(getattr(exc, 'schema_like_detected', False))}\n"
+                    f"schema_signals: {'; '.join(schema_signals[:8])}\n"
                 )
+                self.context_store.write_text_artifact(task_id, "planner_error.txt", error_text)
                 self.reporter.task_failed(user_id, task_id, f"Planning failed: {exc}")
-                logger.warning("event=planning_failed task_id=%s error=%s", task_id, exc)
+                logger.warning(
+                    "event=planning_failed task_id=%s kind=%s cleanup_applied=%s schema_like_detected=%s error=%s",
+                    task_id,
+                    error_kind,
+                    bool(getattr(exc, "cleanup_applied", False)),
+                    bool(getattr(exc, "schema_like_detected", False)),
+                    exc,
+                )
                 return False
 
             plan = planner_result.plan
             self._append_plan(task_id, plan)
+            self.context_store.write_text_artifact(task_id, "planner_raw.txt", planner_result.raw_output)
             self.context_store.write_text_artifact(task_id, "planner_raw_output.txt", planner_result.raw_output)
+            self.context_store.write_text_artifact(task_id, "planner_cleaned.txt", planner_result.cleaned_output)
+            self.context_store.write_json_artifact(task_id, "plan.json", planner_result.parsed_json)
             self.reporter.plan_accepted(user_id, task_id, plan)
-            logger.info("event=plan_accepted task_id=%s actions=%s", task_id, len(plan.actions))
+            logger.info(
+                "event=plan_accepted task_id=%s actions=%s cleanup_applied=%s schema_like_detected=%s",
+                task_id,
+                len(plan.actions),
+                planner_result.cleanup_applied,
+                planner_result.schema_like_detected,
+            )
         return True
 
     def _append_plan(self, task_id: str, plan: ActionPlan) -> None:
@@ -359,7 +387,7 @@ class TaskScheduler:
             "final_response_style": plan.final_response_style,
             "planner_notes": plan.planner_notes,
         }
-        self.context_store.write_json_artifact(task_id, "plan.json", artifact)
+        self.context_store.write_json_artifact(task_id, "execution_plan.json", artifact)
 
     def _execute_action(
         self,
