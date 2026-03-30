@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 from pydantic import ValidationError
 
 from src.planner.action_models import ActionPlan
+from src.planner.action_registry import normalize_plan_payload
 
 _SCHEMA_KEYWORDS = {
     "properties",
@@ -47,6 +48,8 @@ class PlanParseResult:
     cleanup_applied: bool
     schema_like_detected: bool
     schema_like_signals: List[str]
+    normalization_applied: bool
+    normalization_notes: List[str]
 
 
 class PlanParseError(ValueError):
@@ -208,7 +211,7 @@ def parse_action_plan_output(raw_output: str, task_id: str) -> PlanParseResult:
             schema_like_signals=schema_signals,
         )
 
-    payload["task_id"] = task_id
+    payload, normalization_notes = normalize_plan_payload(payload, task_id=task_id)
     try:
         plan = ActionPlan.model_validate(payload)
     except ValidationError as exc:
@@ -232,6 +235,8 @@ def parse_action_plan_output(raw_output: str, task_id: str) -> PlanParseResult:
         cleanup_applied=cleanup_applied,
         schema_like_detected=False,
         schema_like_signals=schema_signals,
+        normalization_applied=bool(normalization_notes),
+        normalization_notes=normalization_notes,
     )
 
 

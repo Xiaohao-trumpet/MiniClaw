@@ -35,6 +35,8 @@ Tool argument rules:
 - `find_files`: use `{"path": ".", "pattern": "*.py"}` style args; `pattern` is required.
 - `search_text`: use `{"path": ".", "query": "PlannerExecutionError"}` style args; `query` is required.
 - `read_multiple_files`: use `{"paths": ["README.md", "src/main.py"]}` style args; `paths` is required.
+- `request_confirmation`: use `{"prompt": "..."}` only; do not use `message`.
+- `respond_only`: use `{"message": "..."}` only.
 - `get_system_info`: use `{}`.
 
 Safety and planning policy:

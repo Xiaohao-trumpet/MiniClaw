@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.planner.action_registry import ACTION_SPECS, normalize_action_payload
+
 ActionType = Literal[
     "run_command",
     "open_application",
@@ -38,26 +40,18 @@ class PlannedAction(BaseModel):
     risk_level: RiskLevel = "low"
     requires_confirmation: bool = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_raw_action(cls, data: object) -> object:
+        if isinstance(data, dict):
+            normalized, _ = normalize_action_payload(data)
+            return normalized
+        return data
+
     @model_validator(mode="after")
     def validate_required_args(self) -> "PlannedAction":
-        required_keys: Dict[str, List[str]] = {
-            "run_command": ["command"],
-            "open_application": ["name"],
-            "open_url": ["url"],
-            "list_directory": ["path"],
-            "read_file": ["path"],
-            "write_file": ["path", "content"],
-            "focus_window": ["title"],
-            "type_text": ["text"],
-            "press_key": ["key"],
-            "mouse_click": ["x", "y"],
-            "find_files": ["pattern"],
-            "search_text": ["query"],
-            "read_multiple_files": ["paths"],
-            "request_confirmation": ["prompt"],
-            "respond_only": ["message"],
-        }
-        keys = required_keys.get(self.action_type, [])
+        spec = ACTION_SPECS.get(self.action_type)
+        keys = list(spec.required_args) if spec else []
         missing = [key for key in keys if key not in self.args]
         if missing:
             raise ValueError(f"Missing args for {self.action_type}: {', '.join(missing)}")

@@ -51,6 +51,9 @@ class PlannerResult:
     cleanup_applied: bool
     schema_like_detected: bool
     schema_like_signals: List[str]
+    normalization_applied: bool
+    normalization_notes: List[str]
+    repair_applied: bool
     model_response: ModelResponse
 
 
@@ -126,7 +129,7 @@ class ActionPlanner:
         if not raw_output:
             raise PlannerExecutionError("Planner model returned empty output.", raw_output="")
         try:
-            parse_result = parse_action_plan_output(raw_output, task_id=task_id)
+            parse_result, repaired_output = self._parse_with_repair(raw_output=raw_output, task_id=task_id)
         except PlanParseError as exc:
             logger.warning(
                 "event=planner_parse_failed task_id=%s kind=%s cleanup_applied=%s schema_like_detected=%s signals=%s",
@@ -147,24 +150,82 @@ class ActionPlanner:
                 schema_like_signals=exc.schema_like_signals,
             ) from exc
         logger.info(
-            "event=planner_parsed task_id=%s provider=%s model=%s actions=%s cleanup_applied=%s schema_like_detected=%s",
+            "event=planner_parsed task_id=%s provider=%s model=%s actions=%s cleanup_applied=%s schema_like_detected=%s normalization_applied=%s repair_applied=%s",
             task_id,
             response.provider,
             response.model,
             len(parse_result.plan.actions),
             parse_result.cleanup_applied,
             parse_result.schema_like_detected,
+            parse_result.normalization_applied,
+            bool(repaired_output),
         )
         return PlannerResult(
             plan=parse_result.plan,
             raw_output=raw_output,
-            cleaned_output=parse_result.cleaned_output,
+            cleaned_output=repaired_output or parse_result.cleaned_output,
             parsed_json=parse_result.parsed_json,
             cleanup_applied=parse_result.cleanup_applied,
             schema_like_detected=parse_result.schema_like_detected,
             schema_like_signals=parse_result.schema_like_signals,
+            normalization_applied=parse_result.normalization_applied,
+            normalization_notes=parse_result.normalization_notes,
+            repair_applied=bool(repaired_output),
             model_response=response,
         )
+
+    def _parse_with_repair(self, *, raw_output: str, task_id: str) -> tuple[Any, str]:
+        try:
+            return parse_action_plan_output(raw_output, task_id=task_id), ""
+        except PlanParseError as exc:
+            if exc.kind not in {"missing_fields", "wrong_field_types", "validation_error"}:
+                raise
+            repaired_output = self._repair_plan_output(task_id=task_id, raw_output=raw_output, parse_error=exc)
+            try:
+                parse_result = parse_action_plan_output(repaired_output, task_id=task_id)
+            except PlanParseError as repair_exc:
+                logger.warning(
+                    "event=planner_repair_failed task_id=%s original_kind=%s repair_kind=%s error=%s",
+                    task_id,
+                    exc.kind,
+                    repair_exc.kind,
+                    repair_exc,
+                )
+                raise exc
+            logger.info(
+                "event=planner_repair_succeeded task_id=%s original_kind=%s",
+                task_id,
+                exc.kind,
+            )
+            return parse_result, repaired_output
+
+    def _repair_plan_output(self, *, task_id: str, raw_output: str, parse_error: PlanParseError) -> str:
+        logger.info("event=planner_repair_requested task_id=%s kind=%s", task_id, parse_error.kind)
+        request = ModelRequest(
+            prompt=(
+                "## PlanRepairInput\n"
+                f"{json.dumps({'task_id': task_id, 'validation_error': str(parse_error), 'previous_output': raw_output}, ensure_ascii=False, indent=2)}\n"
+            ),
+            system_prompt=(
+                "You repair MiniClaw ActionPlan JSON.\n"
+                "Return exactly one corrected JSON object and nothing else.\n"
+                "Preserve the original intent and as many actions as possible.\n"
+                "Fix only runtime validation issues.\n"
+                "Use canonical runtime fields, for example request_confirmation.args.prompt.\n"
+                "Do not emit markdown or explanations."
+            ),
+            options=GenerationOptions(temperature=0.0),
+        )
+        response = self._model_adapter.generate(request)
+        repaired_output = response.text.strip()
+        if not repaired_output:
+            raise PlanParseError(
+                "Planner repair response was empty.",
+                kind="repair_empty",
+                cleaned_output="",
+                cleanup_applied=False,
+            )
+        return repaired_output
 
     def summarize_execution(
         self,
@@ -172,6 +233,8 @@ class ActionPlanner:
         task_id: str,
         instruction: str,
         execution_log: str,
+        execution_records: Optional[List[dict]] = None,
+        final_summary: str = "",
         working_directory: str = "",
         final_response_style: str = "concise",
     ) -> str:
@@ -190,6 +253,8 @@ class ActionPlanner:
             "working_directory": working_directory,
             "final_response_style": final_response_style,
             "execution_log": execution_log[-24000:],
+            "execution_records": execution_records or [],
+            "final_summary": final_summary,
         }
         system_prompt = (
             "You are writing the final user-facing response for MiniClaw.\n"

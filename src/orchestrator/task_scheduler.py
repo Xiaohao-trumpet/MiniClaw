@@ -394,16 +394,27 @@ class TaskScheduler:
             self.context_store.write_text_artifact(task_id, "planner_raw_output.txt", planner_result.raw_output)
             self.context_store.write_text_artifact(task_id, "planner_cleaned.txt", planner_result.cleaned_output)
             self.context_store.write_json_artifact(task_id, "plan.json", planner_result.parsed_json)
+            if getattr(planner_result, "repair_applied", False):
+                self.context_store.write_text_artifact(task_id, "planner_repaired_output.txt", planner_result.cleaned_output)
+            normalization_notes = getattr(planner_result, "normalization_notes", [])
+            if isinstance(normalization_notes, list) and normalization_notes:
+                self.context_store.write_text_artifact(
+                    task_id,
+                    "planner_normalization_notes.txt",
+                    "\n".join(str(item) for item in normalization_notes),
+                )
             self.reporter.plan_accepted(user_id, task_id, plan)
             model_response = getattr(planner_result, "model_response", None)
             provider = getattr(model_response, "provider", "")
             model = getattr(model_response, "model", "")
             logger.info(
-                "event=plan_accepted task_id=%s actions=%s cleanup_applied=%s schema_like_detected=%s provider=%s model=%s",
+                "event=plan_accepted task_id=%s actions=%s cleanup_applied=%s schema_like_detected=%s normalization_applied=%s repair_applied=%s provider=%s model=%s",
                 task_id,
                 len(plan.actions),
                 planner_result.cleanup_applied,
                 planner_result.schema_like_detected,
+                getattr(planner_result, "normalization_applied", False),
+                getattr(planner_result, "repair_applied", False),
                 provider,
                 model,
             )
@@ -599,15 +610,22 @@ class TaskScheduler:
         execution_log_text = ""
         if execution_log_path.exists():
             execution_log_text = execution_log_path.read_text(encoding="utf-8", errors="ignore").strip()
+        execution_records = self.context_store.load_json_artifact(task_id, "execution_log.json", default=[])
+        final_summary_path = self.context_store.task_dir(task_id) / "summary.txt"
+        final_summary = ""
+        if final_summary_path.exists():
+            final_summary = final_summary_path.read_text(encoding="utf-8", errors="ignore").strip()
 
         summarize_execution = getattr(self.planner, "summarize_execution", None)
-        if callable(summarize_execution) and execution_log_text:
+        if callable(summarize_execution) and (execution_log_text or isinstance(execution_records, list)):
             try:
                 response = str(
                     summarize_execution(
                         task_id=task_id,
                         instruction=str(task.get("instruction", "")),
                         execution_log=execution_log_text,
+                        execution_records=execution_records if isinstance(execution_records, list) else [],
+                        final_summary=final_summary,
                         working_directory=working_directory,
                         final_response_style=final_response_style,
                     )
@@ -619,9 +637,8 @@ class TaskScheduler:
                     self.context_store.write_text_artifact(task_id, "final_response.txt", response)
                     return response
 
-        execution_log = self.context_store.load_json_artifact(task_id, "execution_log.json", default=[])
-        if isinstance(execution_log, list):
-            for item in reversed(execution_log):
+        if isinstance(execution_records, list):
+            for item in reversed(execution_records):
                 if not isinstance(item, dict):
                     continue
                 if str(item.get("action_type", "")) == "respond_only" and bool(item.get("success")):

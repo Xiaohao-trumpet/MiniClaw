@@ -6,7 +6,7 @@ import os
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import Callable, List
 
 from pydantic import BaseModel, Field
 
@@ -72,6 +72,50 @@ def _default_shell_executable() -> str:
         if resolved:
             return resolved
     return "/bin/sh"
+
+
+def _is_valid_chat_id(value: str) -> bool:
+    raw = value.strip()
+    if not raw:
+        return False
+    if raw.startswith("tg_"):
+        raw = raw[3:]
+    if raw.startswith("-"):
+        return raw[1:].isdigit()
+    return raw.isdigit()
+
+
+def validate_settings(settings: Settings, *, warn: Callable[[str], None] | None = None) -> None:
+    """Fail fast on invalid runtime configuration and emit actionable warnings."""
+
+    provider = settings.model.provider.strip().lower()
+    if provider not in {"codex", "codex_cli", "openai", "openai_compatible"}:
+        raise ValueError(f"Unsupported model provider: {settings.model.provider}")
+
+    if not settings.planner_prompt_file.exists():
+        raise ValueError(f"Planner prompt file not found: {settings.planner_prompt_file}")
+    if not settings.allowed_workdirs:
+        raise ValueError("SRC_ALLOWED_WORKDIRS must contain at least one path.")
+
+    missing_roots = [str(path) for path in settings.allowed_workdirs if not path.exists()]
+    if missing_roots:
+        raise ValueError(f"Allowed workdirs do not exist: {', '.join(missing_roots)}")
+
+    if provider in {"codex", "codex_cli"}:
+        cli_path = settings.model.codex_cli_path.strip()
+        cli_exists = bool(cli_path) and (Path(cli_path).exists() or shutil.which(cli_path))
+        if not cli_exists:
+            raise ValueError(f"SRC_CODEX_CLI_PATH is not executable: {settings.model.codex_cli_path}")
+
+    if provider in {"openai", "openai_compatible"} and not settings.model.api_base.strip():
+        raise ValueError("SRC_MODEL_API_BASE is required when using openai_compatible provider.")
+
+    invalid_chat_ids = [item for item in settings.telegram_allowed_chat_ids if not _is_valid_chat_id(item)]
+    if invalid_chat_ids:
+        raise ValueError(f"Invalid SRC_TELEGRAM_ALLOWED_CHAT_IDS values: {', '.join(invalid_chat_ids)}")
+
+    if warn is not None and not settings.telegram_bot_token.strip():
+        warn("SRC_TELEGRAM_BOT_TOKEN is empty. Runtime will use Mock Telegram mode.")
 
 
 @lru_cache(maxsize=1)

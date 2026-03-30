@@ -86,3 +86,43 @@ def test_invalid_json_fails_clearly() -> None:
     with pytest.raises(PlanParseError) as exc_info:
         parse_action_plan("not json at all", task_id="task-4")
     assert exc_info.value.kind == "invalid_json"
+
+
+def test_request_confirmation_message_alias_is_normalized() -> None:
+    payload = _valid_plan_payload()
+    payload["actions"] = [
+        {
+            "action_type": "confirm",
+            "args": {"message": "Please confirm before continuing."},
+            "reason": "Need user approval before a risky step.",
+            "risk_level": "moderate",
+            "requires_confirmation": "true",
+        }
+    ]
+    parse_result = parse_action_plan_output(json.dumps(payload), task_id="task-5")
+
+    action = parse_result.plan.actions[0]
+    assert action.action_type == "request_confirmation"
+    assert action.args["prompt"] == "Please confirm before continuing."
+    assert action.risk_level == "medium"
+    assert action.requires_confirmation is True
+    assert parse_result.normalization_applied is True
+
+
+def test_search_text_aliases_and_default_path_are_normalized() -> None:
+    payload = _valid_plan_payload()
+    payload["actions"] = [
+        {
+            "action_type": "search_text",
+            "args": {"pattern": "TODO"},
+            "reason": "Search for TODO markers.",
+            "risk_level": "low",
+            "requires_confirmation": False,
+        }
+    ]
+    parse_result = parse_action_plan_output(json.dumps(payload), task_id="task-6")
+
+    action = parse_result.plan.actions[0]
+    assert action.args["query"] == "TODO"
+    assert action.args["path"] == "."
+    assert parse_result.normalization_applied is True

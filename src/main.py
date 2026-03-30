@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from src.config import get_settings
+from src.config import get_settings, validate_settings
 from src.executors.desktop_executor import DesktopExecutor
 from src.executors.executor_router import ExecutorRouter
 from src.executors.system_executor import SystemExecutor
@@ -341,6 +341,7 @@ app = FastAPI(title=settings.app_name, version="1.0.0")
 
 @app.on_event("startup")
 async def _startup() -> None:
+    validate_settings(settings, warn=lambda message: logger.warning(message))
     gateway.set_message_handler(lambda uid, msg: _handle_user_message(uid, msg, ""))
     gateway.start()
     scheduler.start()
