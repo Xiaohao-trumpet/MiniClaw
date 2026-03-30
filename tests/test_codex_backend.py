@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from raida.agents.codex_backend import CodexBackend
-from raida.utils.command_runner import CommandResult
+from src.agents.codex_backend import CodexBackend
+from src.utils.command_runner import CommandResult
 
 
 class RecordingRunner:

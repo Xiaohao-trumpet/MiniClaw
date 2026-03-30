@@ -1,6 +1,6 @@
 import sys
 
-from raida.utils.command_runner import CommandRunner
+from src.utils.command_runner import CommandRunner
 
 
 def test_command_runner_captures_stdout_and_stderr() -> None:

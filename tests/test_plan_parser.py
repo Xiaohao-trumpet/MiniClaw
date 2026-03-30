@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from raida.planner.plan_parser import PlanParseError, parse_action_plan, parse_action_plan_output
+from src.planner.plan_parser import PlanParseError, parse_action_plan, parse_action_plan_output
 
 
 def _valid_plan_payload() -> dict:

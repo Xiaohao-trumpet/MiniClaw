@@ -76,7 +76,7 @@ flowchart TD
 
 ### 3.1 接入层：消息通道与 API 入口
 
-入口文件是 `raida/main.py`。当前系统有两类入口：
+入口文件是 `src/main.py`。当前系统有两类入口：
 
 - Telegram 消息入口
 - FastAPI 任务入口
@@ -109,8 +109,8 @@ Telegram 侧通过 `MessageGateway + TelegramAdapter` 收消息并回消息。Fa
 
 当前网关位于：
 
-- `raida/gateway/message_gateway.py`
-- `raida/gateway/telegram_adapter.py`
+- `src/gateway/message_gateway.py`
+- `src/gateway/telegram_adapter.py`
 
 虽然名字上是 `MessageGateway`，但目前实际上仍偏 Telegram 专用，因为内部抽象接口仍然是 `TelegramAdapter` 风格。
 
@@ -130,7 +130,7 @@ Telegram 侧通过 `MessageGateway + TelegramAdapter` 收消息并回消息。Fa
 
 ### 3.3 控制层：任务模型与状态机
 
-任务持久化在 `raida/orchestrator/task_manager.py`。
+任务持久化在 `src/orchestrator/task_manager.py`。
 
 这里用 SQLite 管理：
 
@@ -170,7 +170,7 @@ Telegram 侧通过 `MessageGateway + TelegramAdapter` 收消息并回消息。Fa
 
 ### 3.4 编排层：TaskScheduler 是系统核心
 
-调度器位于 `raida/orchestrator/task_scheduler.py`。
+调度器位于 `src/orchestrator/task_scheduler.py`。
 
 它是整个系统最重要的 runtime 核心，负责：
 
@@ -204,9 +204,9 @@ Telegram 侧通过 `MessageGateway + TelegramAdapter` 收消息并回消息。Fa
 
 规划相关代码在：
 
-- `raida/planner/action_models.py`
-- `raida/planner/codex_planner.py`
-- `raida/planner/plan_parser.py`
+- `src/planner/action_models.py`
+- `src/planner/codex_planner.py`
+- `src/planner/plan_parser.py`
 - `prompts/action_planner.md`
 
 #### ActionPlan 设计
@@ -249,13 +249,13 @@ MiniClaw 把模型输出限制成一个 `ActionPlan`：
 
 ### 3.6 执行层：System Executor 与 Desktop Executor 分离
 
-执行分发位于 `raida/executors/executor_router.py`。
+执行分发位于 `src/executors/executor_router.py`。
 
 当前有两个执行器：
 
 #### System Executor
 
-位于 `raida/executors/system_executor.py`，负责：
+位于 `src/executors/system_executor.py`，负责：
 
 - `run_command`
 - `list_directory`
@@ -277,7 +277,7 @@ MiniClaw 把模型输出限制成一个 `ActionPlan`：
 
 #### Desktop Executor
 
-位于 `raida/executors/desktop_executor.py`，负责：
+位于 `src/executors/desktop_executor.py`，负责：
 
 - 打开应用
 - 打开 URL
@@ -301,7 +301,7 @@ MiniClaw 把模型输出限制成一个 `ActionPlan`：
 
 ### 3.7 安全层：已经有门，但门还不够厚
 
-安全策略位于 `raida/safety/safety_guard.py`。
+安全策略位于 `src/safety/safety_guard.py`。
 
 当前会要求确认的情况包括：
 
@@ -328,7 +328,7 @@ MiniClaw 把模型输出限制成一个 `ActionPlan`：
 
 ### 3.8 观测与证据层：Context Store 很重要
 
-上下文与工件存储在 `raida/orchestrator/context_store.py`。
+上下文与工件存储在 `src/orchestrator/context_store.py`。
 
 每个任务会有独立目录：
 

@@ -1,0 +1,58 @@
+{
+  "actions": [
+    {
+      "action_type": "list_directory",
+      "args": {
+        "path": "."
+      },
+      "reason": "Start with a low-risk view of the current folder contents before reading anything more specific.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    },
+    {
+      "action_type": "find_files",
+      "args": {
+        "path": ".",
+        "pattern": "README*"
+      },
+      "reason": "Look for top-level or nested README files that commonly describe the repository purpose.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    },
+    {
+      "action_type": "find_files",
+      "args": {
+        "path": ".",
+        "pattern": "*.py"
+      },
+      "reason": "Identify the main Python source layout to infer the repository's runtime role if documentation is sparse.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    },
+    {
+      "action_type": "search_text",
+      "args": {
+        "path": ".",
+        "query": "MiniClaw"
+      },
+      "reason": "Search for the project name in docs and source to gather purpose-defining references without assuming file names.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    },
+    {
+      "action_type": "respond_only",
+      "args": {
+        "message": "I will summarize what this folder is for based only on the discovered structure and text evidence from the repository."
+      },
+      "reason": "Provide a grounded explanation after safe inspection actions complete.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    }
+  ],
+  "cursor": 5,
+  "cancel_requested": false,
+  "pause_requested": false,
+  "confirmation_granted_for_cursor": null,
+  "pending_instructions": [],
+  "working_directory": ""
+}

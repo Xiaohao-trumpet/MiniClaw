@@ -1,0 +1,17 @@
+[
+  {
+    "timestamp": "2026-03-30T08:37:27.499509+00:00",
+    "index": 0,
+    "action_type": "respond_only",
+    "status": "executed",
+    "success": true,
+    "summary": "I can help. Please tell me what you want me to do or ask a specific question.",
+    "risk_level": "low",
+    "requires_confirmation": false,
+    "safety_decision": "allow",
+    "safety_reason": "Structured local action is allowed.",
+    "safety_preview": "message: I can help. Please tell me what you want me to do or ask a specific question.",
+    "safety_category": "structured_tool",
+    "metadata": {}
+  }
+]

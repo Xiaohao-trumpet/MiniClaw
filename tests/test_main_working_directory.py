@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import raida.main as main_module
+import src.main as main_module
 
 
 def test_resolve_task_working_directory_uses_input_when_provided(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

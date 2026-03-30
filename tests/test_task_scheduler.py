@@ -2,15 +2,15 @@ import json
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
-from raida.config import Settings
-from raida.orchestrator.context_store import ContextStore
-from raida.orchestrator.reporter import Reporter
-from raida.orchestrator.task_manager import TaskManager
-from raida.orchestrator.task_scheduler import TaskScheduler
-from raida.planner.action_models import ActionPlan
-from raida.planner.codex_planner import PlannerExecutionError
-from raida.safety.safety_guard import SafetyGuard
-from raida.utils.command_runner import CommandResult
+from src.config import Settings
+from src.orchestrator.context_store import ContextStore
+from src.orchestrator.reporter import Reporter
+from src.orchestrator.task_manager import TaskManager
+from src.orchestrator.task_scheduler import TaskScheduler
+from src.planner.action_models import ActionPlan
+from src.planner.codex_planner import PlannerExecutionError
+from src.safety.safety_guard import SafetyGuard
+from src.utils.command_runner import CommandResult
 
 
 class DummyGateway:
@@ -78,7 +78,7 @@ def _build_scheduler(
     planner_override=None,
 ) -> tuple[TaskScheduler, TaskManager, ContextStore, FakeExecutorRouter]:  # noqa: ANN001
     settings = Settings(
-        database_path=tmp_path / "raida.db",
+        database_path=tmp_path / "src.db",
         task_data_dir=tmp_path / "tasks",
         allowed_workdirs=[tmp_path],
     )
@@ -245,7 +245,7 @@ def test_action_output_is_sent_to_gateway_for_list_directory(tmp_path) -> None: 
             }
 
     settings = Settings(
-        database_path=tmp_path / "raida.db",
+        database_path=tmp_path / "src.db",
         task_data_dir=tmp_path / "tasks",
         allowed_workdirs=[tmp_path],
     )

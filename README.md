@@ -94,6 +94,21 @@ MiniClaw 目前已经具备一条可工作的最小闭环：
 ## 项目流程图
 ![flow](./flow.jpg)
 
+## 使用手册
+
+如果你要真正把项目跑起来，而不只是看设计说明，建议直接读：
+
+- [docs/05_user_manual.md](./docs/05_user_manual.md)
+
+这份手册覆盖：
+
+- 顶层架构图与五层设计
+- 模型 provider 选择与配置
+- API / Telegram 接入方式
+- 任务状态机与全部用户指令
+- 安全策略、机器控制边界与任务工件
+- 当前分支的已知启动问题
+
 ## 项目意义
 
 MiniClaw 的价值不在“替代谁”，而在于提供一种工程方法论：
@@ -120,9 +135,11 @@ pip install -r requirements.txt
 ### 2) 启动服务
 
 ```bash
-uvicorn raida.main:app --host 0.0.0.0 --port 8000
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 # 或
 bash scripts/start_server.sh
+# 或直接编辑配置后启动
+bash scripts/run_miniclaw.sh
 ```
 
 ### 3) 发送测试任务（Mock Telegram）

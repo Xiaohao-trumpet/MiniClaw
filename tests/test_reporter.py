@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from raida.orchestrator.reporter import Reporter
+from src.orchestrator.reporter import Reporter
 
 
 class DummyGateway:

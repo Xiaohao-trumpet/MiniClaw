@@ -1,4 +1,4 @@
-# MiniClaw (formerly RAIDA)
+# MiniClaw
 
 MiniClaw is a local-first remote developer agent controlled from Telegram.
 
@@ -24,17 +24,17 @@ Flow:
 `Instruction -> Planner -> Structured ActionPlan -> Safety Guard -> Executor Router -> Local Executors -> Artifacts -> Telegram`
 
 Main modules:
-- `raida/planner/`
+- `src/planner/`
   - `action_models.py`: strict Pydantic schema for `ActionPlan` and `PlannedAction`
   - `plan_parser.py`: robust JSON extraction/validation
   - `codex_planner.py`: Codex CLI planner wrapper (JSON-only contract)
-- `raida/executors/`
+- `src/executors/`
   - `system_executor.py`: `run_command`, `list_directory`, `read_file`, `write_file`, `respond_only`
   - `desktop_executor.py`: `open_application`, `open_url`, `take_screenshot`, desktop actions
   - `executor_router.py`: dispatch layer
-- `raida/safety/safety_guard.py`: high-risk detection and confirmation gating
-- `raida/orchestrator/task_scheduler.py`: planning/execution lifecycle + resume logic
-- `raida/orchestrator/context_store.py`: task artifact persistence
+- `src/safety/safety_guard.py`: high-risk detection and confirmation gating
+- `src/orchestrator/task_scheduler.py`: planning/execution lifecycle + resume logic
+- `src/orchestrator/context_store.py`: task artifact persistence
 - `prompts/action_planner.md`: planner contract prompt file
 
 ## Task Lifecycle
@@ -149,14 +149,14 @@ Incorrect legacy behavior (now removed):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RAIDA_DB_PATH` | `data/raida.db` | SQLite database |
-| `RAIDA_TASK_DATA_DIR` | `data/tasks` | Task artifact root |
-| `RAIDA_ALLOWED_WORKDIRS` | current dir | Allowed execution roots |
-| `RAIDA_CODEX_CLI_PATH` | `codex` | Codex CLI path |
-| `RAIDA_PLANNER_PROMPT_FILE` | `prompts/action_planner.md` | Planner prompt template |
-| `RAIDA_COMMAND_TIMEOUT` | `1800` | Command timeout seconds |
-| `RAIDA_TELEGRAM_BOT_TOKEN` | empty | Telegram bot token |
-| `RAIDA_TELEGRAM_ALLOWED_CHAT_IDS` | empty | Allowed Telegram IDs |
+| `SRC_DB_PATH` | `data/src.db` | SQLite database |
+| `SRC_TASK_DATA_DIR` | `data/tasks` | Task artifact root |
+| `SRC_ALLOWED_WORKDIRS` | current dir | Allowed execution roots |
+| `SRC_CODEX_CLI_PATH` | `codex` | Codex CLI path |
+| `SRC_PLANNER_PROMPT_FILE` | `prompts/action_planner.md` | Planner prompt template |
+| `SRC_COMMAND_TIMEOUT` | `1800` | Command timeout seconds |
+| `SRC_TELEGRAM_BOT_TOKEN` | empty | Telegram bot token |
+| `SRC_TELEGRAM_ALLOWED_CHAT_IDS` | empty | Allowed Telegram IDs |
 
 ## Run
 
@@ -164,7 +164,7 @@ Incorrect legacy behavior (now removed):
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn raida.main:app --host 0.0.0.0 --port 8000
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
 Mock Telegram test:
@@ -174,4 +174,3 @@ curl -X POST http://127.0.0.1:8000/messages/telegram/mock \
   -H "Content-Type: application/json" \
   -d '{"user_id":"tg_123456789","message":"/run open VS Code and show files in ."}'
 ```
-

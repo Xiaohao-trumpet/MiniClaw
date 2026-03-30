@@ -1,0 +1,19 @@
+{
+  "actions": [
+    {
+      "action_type": "respond_only",
+      "args": {
+        "message": "I can help. Please tell me what you want me to do or ask a specific question."
+      },
+      "reason": "The instruction is unclear, so the safest executable plan is to respond and request clarification.",
+      "risk_level": "low",
+      "requires_confirmation": false
+    }
+  ],
+  "cursor": 1,
+  "cancel_requested": false,
+  "pause_requested": false,
+  "confirmation_granted_for_cursor": null,
+  "pending_instructions": [],
+  "working_directory": ""
+}

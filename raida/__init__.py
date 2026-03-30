@@ -1,2 +1,0 @@
-"""RAIDA package entrypoint."""
-
