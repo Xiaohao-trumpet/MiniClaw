@@ -166,5 +166,58 @@ class ActionPlanner:
             model_response=response,
         )
 
+    def summarize_execution(
+        self,
+        *,
+        task_id: str,
+        instruction: str,
+        execution_log: str,
+        working_directory: str = "",
+        final_response_style: str = "concise",
+    ) -> str:
+        """Generate the final user-facing answer from execution evidence."""
+
+        logger.info(
+            "event=final_response_request task_id=%s provider=%s model=%s working_directory=%s",
+            task_id,
+            self._model_adapter.provider_name,
+            self._model_adapter.model_name,
+            working_directory,
+        )
+        prompt_payload = {
+            "task_id": task_id,
+            "instruction": instruction,
+            "working_directory": working_directory,
+            "final_response_style": final_response_style,
+            "execution_log": execution_log[-24000:],
+        }
+        system_prompt = (
+            "You are writing the final user-facing response for MiniClaw.\n"
+            "Use only the execution evidence provided.\n"
+            "Do not mention planning or say what you will do.\n"
+            "Do not invent facts beyond the evidence.\n"
+            "If the evidence is incomplete, say what was observed and what remains uncertain.\n"
+            "Return plain text only."
+        )
+        request = ModelRequest(
+            prompt="## ExecutionResultInput\n" f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}\n",
+            system_prompt=system_prompt,
+            options=GenerationOptions(temperature=0.0),
+            metadata={"working_directory": working_directory},
+        )
+        response = self._model_adapter.generate(request)
+        text = response.text.strip()
+        logger.info(
+            "event=final_response_generated task_id=%s provider=%s model=%s finish_reason=%s chars=%s",
+            task_id,
+            response.provider,
+            response.model,
+            response.finish_reason,
+            len(text),
+        )
+        if not text:
+            raise PlannerExecutionError("Final response model returned empty output.")
+        return text
+
 
 CodexPlanner = ActionPlanner

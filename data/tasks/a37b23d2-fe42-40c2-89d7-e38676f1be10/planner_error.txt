@@ -1,0 +1,4 @@
+kind: validation_error
+message: Planner output failed ActionPlan validation: actions.5: Value error, Missing args for request_confirmation: prompt.
+schema_like_detected: False
+schema_signals: 

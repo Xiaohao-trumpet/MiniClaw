@@ -319,7 +319,8 @@ class TaskScheduler:
 
         self.task_manager.set_status(task_id, "completed", current_step="done")
         summary = self._write_final_summary(task_id, success=True)
-        self.reporter.task_completed(user_id, task_id, summary)
+        final_response = self._build_final_response(task)
+        self.reporter.task_completed(user_id, task_id, final_response or summary)
 
     def _ensure_plan_ready(self, task: Dict[str, Any], state: Dict[str, Any]) -> bool:
         task_id = str(task["task_id"])
@@ -584,6 +585,52 @@ class TaskScheduler:
         summary = Reporter.build_final_summary(counts=counts, suggested_next_steps="")
         self.context_store.write_text_artifact(task_id, "summary.txt", summary)
         return summary
+
+    def _build_final_response(self, task: Dict[str, Any]) -> str:
+        task_id = str(task["task_id"])
+        state = self.context_store.load_state(task_id)
+        working_directory = str(state.get("working_directory") or task.get("working_directory") or "")
+        plan_artifact = self.context_store.load_json_artifact(task_id, "execution_plan.json", default={})
+        final_response_style = "concise"
+        if isinstance(plan_artifact, dict):
+            final_response_style = str(plan_artifact.get("final_response_style", "concise") or "concise")
+
+        execution_log_path = self.context_store.task_dir(task_id) / "logs" / "execution.log"
+        execution_log_text = ""
+        if execution_log_path.exists():
+            execution_log_text = execution_log_path.read_text(encoding="utf-8", errors="ignore").strip()
+
+        summarize_execution = getattr(self.planner, "summarize_execution", None)
+        if callable(summarize_execution) and execution_log_text:
+            try:
+                response = str(
+                    summarize_execution(
+                        task_id=task_id,
+                        instruction=str(task.get("instruction", "")),
+                        execution_log=execution_log_text,
+                        working_directory=working_directory,
+                        final_response_style=final_response_style,
+                    )
+                ).strip()
+            except Exception as exc:  # pragma: no cover - fallback path
+                logger.warning("event=final_response_failed task_id=%s error=%s", task_id, exc)
+            else:
+                if response:
+                    self.context_store.write_text_artifact(task_id, "final_response.txt", response)
+                    return response
+
+        execution_log = self.context_store.load_json_artifact(task_id, "execution_log.json", default=[])
+        if isinstance(execution_log, list):
+            for item in reversed(execution_log):
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("action_type", "")) == "respond_only" and bool(item.get("success")):
+                    response = str(item.get("summary", "")).strip()
+                    if response:
+                        self.context_store.write_text_artifact(task_id, "final_response.txt", response)
+                        return response
+
+        return ""
 
     @staticmethod
     def _extract_confirm_task_id(message: str) -> str:

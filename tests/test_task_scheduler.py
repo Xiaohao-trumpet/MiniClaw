@@ -263,3 +263,77 @@ def test_action_output_is_sent_to_gateway_for_list_directory(tmp_path) -> None: 
 
     assert any("Action output (list_directory)" in message for message in gateway.messages)
     assert any("MiniClaw" in message for message in gateway.messages)
+
+
+def test_task_completed_sends_model_generated_final_response(tmp_path) -> None:  # noqa: ANN001
+    plan = ActionPlan.model_validate(
+        {
+            "task_id": "t5",
+            "goal": "Summarize repository purpose",
+            "actions": [
+                {
+                    "action_type": "find_files",
+                    "args": {"path": ".", "pattern": "*.py"},
+                    "reason": "Inspect the code layout.",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                },
+                {
+                    "action_type": "respond_only",
+                    "args": {"message": "I will summarize the repository."},
+                    "reason": "Placeholder planner response.",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                },
+            ],
+            "final_response_style": "concise",
+            "planner_notes": "",
+        }
+    )
+
+    class SummarizingPlanner(FakePlanner):
+        def summarize_execution(self, **kwargs) -> str:  # noqa: ANN003
+            assert "execution_log" in kwargs
+            return "This folder contains the MiniClaw runtime, including planning, safety, and execution components."
+
+    class OutputExecutorRouter(FakeExecutorRouter):
+        def execute_action(self, action: Dict[str, Any], working_directory, task_dir, on_output=None):  # noqa: ANN001, ARG002
+            self.calls += 1
+            action_type = str(action.get("action_type", ""))
+            if action_type == "find_files":
+                return {
+                    "success": True,
+                    "status": "executed",
+                    "summary": "Found Python files.",
+                    "output": "src/main.py\nsrc/config.py\nsrc/orchestrator/task_scheduler.py",
+                    "artifacts": [],
+                    "metadata": {},
+                }
+            return {
+                "success": True,
+                "status": "executed",
+                "summary": "I will summarize the repository.",
+                "output": '{"message":"I will summarize the repository."}',
+                "artifacts": [],
+                "metadata": {},
+            }
+
+    settings = Settings(
+        database_path=tmp_path / "src.db",
+        task_data_dir=tmp_path / "tasks",
+        allowed_workdirs=[tmp_path],
+    )
+    task_manager = TaskManager(settings.database_path)
+    context_store = ContextStore(settings.task_data_dir)
+    planner = SummarizingPlanner([plan])
+    executor_router = OutputExecutorRouter()
+    safety_guard = SafetyGuard(settings=settings)
+    gateway = DummyGateway()
+    reporter = Reporter(gateway)
+    scheduler = TaskScheduler(task_manager, context_store, planner, executor_router, safety_guard, reporter)
+
+    task = task_manager.create_task("tg_5", "summarize the folder and tell what it is used for", working_directory=str(tmp_path))
+    scheduler._execute_task(task["task_id"])
+
+    assert any("MiniClaw runtime" in message for message in gateway.messages)
+    assert context_store.artifact_path(task["task_id"], "final_response.txt").exists()
