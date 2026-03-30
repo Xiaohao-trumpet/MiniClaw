@@ -10,6 +10,14 @@ if [[ -z "${VIRTUAL_ENV:-}" && -f "${ROOT_DIR}/.venv/bin/activate" ]]; then
   source "${ROOT_DIR}/.venv/bin/activate"
 fi
 
+# Load secrets from .env if it exists (never commit .env to git).
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 set -a
 
@@ -24,7 +32,7 @@ set -a
 : "${SRC_DB_PATH:=data/src.db}"
 : "${SRC_TASK_DATA_DIR:=data/tasks}"
 : "${SRC_PLANNER_PROMPT_FILE:=prompts/action_planner.md}"
-: "${SRC_ALLOWED_WORKDIRS:=${ROOT_DIR}}"
+: "${SRC_ALLOWED_WORKDIRS:=${ROOT_DIR},/home/zhouxiaohao/code_search}"
 : "${SRC_COMMAND_TIMEOUT:=1800}"
 : "${SRC_SHELL_EXECUTABLE:=/bin/bash}"
 : "${SRC_LOG_LEVEL:=INFO}"
@@ -35,8 +43,9 @@ set -a
 
 # Telegram
 # Leave SRC_TELEGRAM_BOT_TOKEN empty to run in Mock Telegram mode.
-: "${SRC_TELEGRAM_BOT_TOKEN:=8361682491:AAFcWF8kMxp9VX1XvS2BtMWLBqlZguOjuh4}"
-: "${SRC_TELEGRAM_ALLOWED_CHAT_IDS:=6901335262}"
+# Set these in .env, not here.
+: "${SRC_TELEGRAM_BOT_TOKEN:=}"
+: "${SRC_TELEGRAM_ALLOWED_CHAT_IDS:=}"
 : "${SRC_TELEGRAM_INVITE_CODE:=}"
 : "${SRC_TELEGRAM_REQUIRE_REGISTRATION:=false}"
 : "${SRC_TELEGRAM_POLL_TIMEOUT:=30}"

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.gateway.message_gateway import MessageGateway
+from src.orchestrator.progress_aggregator import build_progress_message
+from src.orchestrator.session_models import ProgressSnapshot
 from src.planner.action_models import ActionPlan
 from src.utils.logger import get_logger
 
@@ -17,14 +19,28 @@ class Reporter:
 
     def __init__(self, gateway: MessageGateway) -> None:
         self.gateway = gateway
+        self._progress_message_ids: Dict[str, int] = {}
 
-    def task_created(self, user_id: str, task_id: str, instruction: str) -> None:
+    def task_created(
+        self,
+        user_id: str,
+        task_id: str,
+        instruction: str,
+        *,
+        session_id: str = "",
+        session_title: str = "",
+    ) -> None:
+        session_line = ""
+        if session_id:
+            label = session_title or session_id
+            session_line = f"\nsession: {label} ({session_id})"
         self.gateway.send_message(
             user_id,
             (
                 f"[MiniClaw] Task created\n"
                 f"task_id: {task_id}\n"
                 f"instruction: {instruction}\n"
+                f"{session_line.lstrip()}\n"
                 f"status: pending"
             ),
         )
@@ -79,16 +95,37 @@ class Reporter:
             ),
         )
 
+    def progress_update(self, user_id: str, snapshot: ProgressSnapshot) -> ProgressSnapshot:
+        text = build_progress_message(snapshot)
+        message_id = snapshot.progress_message_id or self._progress_message_ids.get(snapshot.task_id)
+        response = None
+        if message_id:
+            try:
+                response = self.gateway.edit_message(user_id, int(message_id), text)
+            except Exception as exc:  # pragma: no cover - adapter fallback path
+                logger.warning("Failed to edit progress message for %s: %s", snapshot.task_id, exc)
+                response = None
+        if response is None:
+            response = self.gateway.send_message(user_id, text)
+
+        extracted = self._extract_message_id(response)
+        if extracted is not None:
+            self._progress_message_ids[snapshot.task_id] = extracted
+            snapshot.progress_message_id = extracted
+        return snapshot
+
     def task_failed(self, user_id: str, task_id: str, error: str) -> None:
+        self._progress_message_ids.pop(task_id, None)
         self.gateway.send_message(
             user_id,
             f"[MiniClaw] Task {task_id} failed.\nerror: {error}",
         )
 
     def task_completed(self, user_id: str, task_id: str, summary: str) -> None:
+        self._progress_message_ids.pop(task_id, None)
         self.gateway.send_message(
             user_id,
-            f"[MiniClaw] Task {task_id} completed.\n{summary}",
+            f"[MiniClaw] Final answer for task {task_id}:\n{summary}",
         )
 
     def send_screenshot(self, user_id: str, image_path: Path) -> None:
@@ -131,3 +168,14 @@ class Reporter:
         if suggested_next_steps.strip():
             lines.append(f"suggested_next_steps: {suggested_next_steps.strip()}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _extract_message_id(response: object) -> Optional[int]:
+        if isinstance(response, dict):
+            message_id = response.get("message_id")
+            if isinstance(message_id, int):
+                return message_id
+            nested = response.get("result")
+            if isinstance(nested, dict) and isinstance(nested.get("message_id"), int):
+                return int(nested["message_id"])
+        return None

@@ -33,8 +33,11 @@ class Settings(BaseModel):
 
     database_path: Path = Field(default=Path("data/src.db"))
     task_data_dir: Path = Field(default=Path("data/tasks"))
+    session_data_dir: Path = Field(default=Path("data/sessions"))
     planner_prompt_file: Path = Field(default=Path("prompts/action_planner.md"))
     allowed_workdirs: List[Path] = Field(default_factory=lambda: [Path.cwd()])
+    session_recent_turns: int = 12
+    auto_create_session_on_run: bool = True
 
     model: ModelSettings = Field(default_factory=ModelSettings)
     command_timeout_seconds: int = 1800
@@ -96,6 +99,8 @@ def validate_settings(settings: Settings, *, warn: Callable[[str], None] | None 
         raise ValueError(f"Planner prompt file not found: {settings.planner_prompt_file}")
     if not settings.allowed_workdirs:
         raise ValueError("SRC_ALLOWED_WORKDIRS must contain at least one path.")
+    if settings.session_recent_turns < 1:
+        raise ValueError("SRC_SESSION_RECENT_TURNS must be at least 1.")
 
     missing_roots = [str(path) for path in settings.allowed_workdirs if not path.exists()]
     if missing_roots:
@@ -126,8 +131,11 @@ def get_settings() -> Settings:
         port=int(os.getenv("SRC_PORT", "8000")),
         database_path=Path(os.getenv("SRC_DB_PATH", "data/src.db")),
         task_data_dir=Path(os.getenv("SRC_TASK_DATA_DIR", "data/tasks")),
+        session_data_dir=Path(os.getenv("SRC_SESSION_DATA_DIR", "data/sessions")),
         planner_prompt_file=Path(os.getenv("SRC_PLANNER_PROMPT_FILE", "prompts/action_planner.md")),
         allowed_workdirs=_parse_allowed_workdirs(os.getenv("SRC_ALLOWED_WORKDIRS")),
+        session_recent_turns=max(1, int(os.getenv("SRC_SESSION_RECENT_TURNS", "12"))),
+        auto_create_session_on_run=os.getenv("SRC_AUTO_CREATE_SESSION_ON_RUN", "true").lower() == "true",
         model=ModelSettings(
             provider=os.getenv("SRC_MODEL_PROVIDER", "codex_cli"),
             model_name=os.getenv("SRC_MODEL_NAME", "codex"),

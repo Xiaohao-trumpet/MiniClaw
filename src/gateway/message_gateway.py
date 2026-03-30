@@ -28,8 +28,11 @@ class MessageGateway:
             raise RuntimeError("Message handler is not configured.")
         self._handler(user_id, message)
 
-    def send_message(self, user_id: str, text: str) -> None:
-        self.adapter.send_message(user_id, text)
+    def send_message(self, user_id: str, text: str):
+        return self.adapter.send_message(user_id, text)
+
+    def edit_message(self, user_id: str, message_id: int, text: str):
+        return self.adapter.edit_message(user_id, message_id, text)
 
     def send_image(self, user_id: str, image_path: str) -> None:
         self.adapter.send_image(user_id, image_path)

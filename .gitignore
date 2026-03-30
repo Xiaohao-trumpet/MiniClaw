@@ -1,0 +1,25 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Data
+data/src.db
+data/tasks/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp

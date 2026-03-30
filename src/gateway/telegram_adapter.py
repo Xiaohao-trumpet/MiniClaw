@@ -45,8 +45,12 @@ class TelegramAdapter(ABC):
         """Handle one Telegram update payload."""
 
     @abstractmethod
-    def send_message(self, user_id: str, text: str) -> None:
+    def send_message(self, user_id: str, text: str) -> Dict[str, Any] | None:
         """Send text message to user."""
+
+    @abstractmethod
+    def edit_message(self, user_id: str, message_id: int, text: str) -> Dict[str, Any] | None:
+        """Edit a previously sent text message when supported."""
 
     @abstractmethod
     def send_image(self, user_id: str, image_path: str) -> None:
@@ -62,6 +66,7 @@ class MockTelegramAdapter(TelegramAdapter):
 
     def __init__(self) -> None:
         self._handler: Optional[Callable[[str, str], None]] = None
+        self._next_message_id = 1
 
     def start_listening(self, handler: Callable[[str, str], None]) -> None:
         self._handler = handler
@@ -90,8 +95,15 @@ class MockTelegramAdapter(TelegramAdapter):
                 return True
         return False
 
-    def send_message(self, user_id: str, text: str) -> None:
+    def send_message(self, user_id: str, text: str) -> Dict[str, Any]:
+        message_id = self._next_message_id
+        self._next_message_id += 1
         logger.info("[MockTelegram->%s] %s", user_id, text)
+        return {"message_id": message_id, "text": text}
+
+    def edit_message(self, user_id: str, message_id: int, text: str) -> Dict[str, Any]:
+        logger.info("[MockTelegram->%s][edit:%s] %s", user_id, message_id, text)
+        return {"message_id": message_id, "text": text}
 
     def send_image(self, user_id: str, image_path: str) -> None:
         logger.info("[MockTelegram->%s] [image] %s", user_id, image_path)
@@ -167,16 +179,31 @@ class TelegramBotApiAdapter(TelegramAdapter):
 
         return False
 
-    def send_message(self, user_id: str, text: str) -> None:
+    def send_message(self, user_id: str, text: str) -> Dict[str, Any] | None:
         chat_id = to_chat_id(user_id)
+        last_result: Dict[str, Any] | None = None
         for chunk in _split_text(text, TELEGRAM_TEXT_LIMIT):
-            self._post_json(
+            response = self._post_json(
                 "sendMessage",
                 {
                     "chat_id": chat_id,
                     "text": chunk,
                 },
             )
+            result = response.get("result")
+            last_result = result if isinstance(result, dict) else response
+        return last_result
+
+    def edit_message(self, user_id: str, message_id: int, text: str) -> Dict[str, Any] | None:
+        chat_id = to_chat_id(user_id)
+        payload = {
+            "chat_id": chat_id,
+            "message_id": int(message_id),
+            "text": text[:TELEGRAM_TEXT_LIMIT],
+        }
+        response = self._post_json("editMessageText", payload)
+        result = response.get("result")
+        return result if isinstance(result, dict) else response
 
     def send_image(self, user_id: str, image_path: str) -> None:
         chat_id = to_chat_id(user_id)
@@ -341,4 +368,3 @@ def _split_text(text: str, chunk_size: int) -> List[str]:
         chunks.append(raw[start:end])
         start = end
     return chunks
-
