@@ -30,20 +30,16 @@ class Reporter:
         session_id: str = "",
         session_title: str = "",
     ) -> None:
-        session_line = ""
+        lines = [
+            "[MiniClaw] Task created",
+            f"task_id: {task_id}",
+            f"instruction: {instruction}",
+        ]
         if session_id:
             label = session_title or session_id
-            session_line = f"\nsession: {label} ({session_id})"
-        self.gateway.send_message(
-            user_id,
-            (
-                f"[MiniClaw] Task created\n"
-                f"task_id: {task_id}\n"
-                f"instruction: {instruction}\n"
-                f"{session_line.lstrip()}\n"
-                f"status: pending"
-            ),
-        )
+            lines.append(f"session: {label} ({session_id})")
+        lines.append("status: pending")
+        self.gateway.send_message(user_id, "\n".join(lines))
 
     def planning_started(self, user_id: str, task_id: str) -> None:
         self.gateway.send_message(user_id, f"[MiniClaw][{task_id}] Planning started.")

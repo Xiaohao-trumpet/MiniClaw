@@ -211,7 +211,7 @@ def test_planning_failure_marks_task_failed_and_writes_artifacts(tmp_path) -> No
     assert context_store.artifact_path(task["task_id"], "planner_error.txt").exists()
 
 
-def test_action_output_is_sent_to_gateway_for_list_directory(tmp_path) -> None:  # noqa: ANN001
+def test_action_output_is_grouped_into_progress_update_for_list_directory(tmp_path) -> None:  # noqa: ANN001
     plan = ActionPlan.model_validate(
         {
             "task_id": "t4",
@@ -261,7 +261,8 @@ def test_action_output_is_sent_to_gateway_for_list_directory(tmp_path) -> None: 
     task = task_manager.create_task("tg_4", "show files", working_directory=str(tmp_path))
     scheduler._execute_task(task["task_id"])
 
-    assert any("Action output (list_directory)" in message for message in gateway.messages)
+    assert any("Progress" in message for message in gateway.messages)
+    assert any("list_directory" in message for message in gateway.messages)
     assert any("MiniClaw" in message for message in gateway.messages)
 
 
@@ -337,3 +338,77 @@ def test_task_completed_sends_model_generated_final_response(tmp_path) -> None: 
 
     assert any("MiniClaw runtime" in message for message in gateway.messages)
     assert context_store.artifact_path(task["task_id"], "final_response.txt").exists()
+
+
+def test_scheduler_passes_recent_session_conversation_to_planner(tmp_path) -> None:  # noqa: ANN001
+    plan = ActionPlan.model_validate(
+        {
+            "task_id": "t6",
+            "goal": "Respond only",
+            "actions": [
+                {
+                    "action_type": "respond_only",
+                    "args": {"message": "done"},
+                    "reason": "Respond.",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                }
+            ],
+            "final_response_style": "concise",
+            "planner_notes": "",
+        }
+    )
+
+    class SessionAwarePlanner(FakePlanner):
+        def __init__(self, plans: List[ActionPlan]) -> None:
+            super().__init__(plans)
+            self.seen_recent_conversation = None
+
+        def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+            self.seen_recent_conversation = recent_conversation
+            return super().plan(task_id, instruction, working_directory, recent_conversation)
+
+    settings = Settings(
+        database_path=tmp_path / "src.db",
+        task_data_dir=tmp_path / "tasks",
+        session_data_dir=tmp_path / "sessions",
+        allowed_workdirs=[tmp_path],
+    )
+    task_manager = TaskManager(settings.database_path)
+    context_store = ContextStore(settings.task_data_dir, settings.session_data_dir)
+    planner = SessionAwarePlanner([plan])
+    executor_router = FakeExecutorRouter()
+    safety_guard = SafetyGuard(settings=settings)
+    reporter = Reporter(DummyGateway())
+    scheduler = TaskScheduler(
+        task_manager,
+        context_store,
+        planner,
+        executor_router,
+        safety_guard,
+        reporter,
+        session_recent_turns=5,
+    )
+
+    task_manager.activate_user("tg_6")
+    session = task_manager.create_session("tg_6", title="Repo discussion", working_directory=str(tmp_path), activate=True)
+    context_store.append_session_conversation(str(session["session_id"]), "user", "what is this repo", task_id="task-old")
+    context_store.append_session_conversation(
+        str(session["session_id"]),
+        "assistant",
+        "it is a local runtime",
+        task_id="task-old",
+        message_type="final_answer",
+    )
+
+    task = task_manager.create_task(
+        "tg_6",
+        "summarize it again",
+        working_directory=str(tmp_path),
+        session_id=str(session["session_id"]),
+    )
+    scheduler._execute_task(task["task_id"])
+
+    assert planner.seen_recent_conversation is not None
+    assert any(item["content"] == "what is this repo" for item in planner.seen_recent_conversation)
+    assert context_store.artifact_path(task["task_id"], "progress_details.txt").exists()

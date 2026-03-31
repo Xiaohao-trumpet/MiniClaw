@@ -436,7 +436,6 @@ class TaskManager:
     def list_tasks(
         self,
         user_id: Optional[str] = None,
-        *,
         session_id: str = "",
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
