@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-31T06:55:56.853099+00:00", "role": "user", "content": "How can I switch sessions?", "task_id": "8d9c69f1-aaba-4eb4-8616-3a43d9307ede", "message_type": "user_turn"}
+{"timestamp": "2026-03-31T06:56:27.445283+00:00", "role": "assistant", "content": "Please clarify which sessions you mean, for example terminal sessions, app/login sessions, browser tabs, or MiniClaw runtime sessions.", "task_id": "8d9c69f1-aaba-4eb4-8616-3a43d9307ede", "message_type": "final_answer"}
