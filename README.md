@@ -66,7 +66,7 @@ MiniClaw 的核心流程可以概括成：
 7. Telegram 收到一条 compact progress 更新
 8. 最终答案单独发回用户
 
-![flow](./flow.jpg)
+![flow](./flow.png)
 
 ---
 
