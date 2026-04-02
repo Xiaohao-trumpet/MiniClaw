@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.orchestrator.context_store import ContextStore
 from src.orchestrator.task_manager import TaskManager
+from src.utils.path_utils import find_project_root
 
 
 def _derive_title(text: str) -> str:
@@ -15,6 +17,15 @@ def _derive_title(text: str) -> str:
     if len(value) <= 60:
         return value
     return value[:57].rstrip() + "..."
+
+
+def _derive_project_key(working_directory: str) -> str:
+    raw = working_directory.strip()
+    if not raw:
+        return ""
+    resolved = Path(raw).resolve()
+    project_root = find_project_root(resolved)
+    return str((project_root or resolved).resolve())
 
 
 class SessionService:
@@ -30,13 +41,16 @@ class SessionService:
         user_id: str,
         *,
         title: str = "",
+        alias: str = "",
         working_directory: str = "",
         activate: bool = True,
     ) -> Dict[str, Any]:
         session = self.task_manager.create_session(
             user_id=user_id,
             title=title.strip() or "New session",
+            alias=alias.strip() or title.strip(),
             working_directory=working_directory,
+            project_key=_derive_project_key(working_directory),
             activate=activate,
         )
         self.context_store.init_session_context(str(session["session_id"]))
@@ -65,17 +79,29 @@ class SessionService:
             return None
         return self.create_session(
             user_id,
-            title=_derive_title(title_hint),
+            title="Main",
+            alias="main",
             working_directory=working_directory,
             activate=True,
         )
 
-    def use_session(self, user_id: str, session_id: str) -> Optional[Dict[str, Any]]:
-        session = self.task_manager.get_session(session_id)
+    def resolve_session(self, user_id: str, session_ref: str) -> Optional[Dict[str, Any]]:
+        token = session_ref.strip()
+        if not token:
+            return None
+        session = self.task_manager.get_session(token)
+        if session is None:
+            session = self.task_manager.get_session_by_alias(user_id, token)
         if session is None or str(session.get("user_id")) != user_id:
             return None
-        self.task_manager.set_active_session(user_id, session_id)
-        return self.task_manager.get_session(session_id)
+        return session
+
+    def use_session(self, user_id: str, session_ref: str) -> Optional[Dict[str, Any]]:
+        session = self.resolve_session(user_id, session_ref)
+        if session is None or str(session.get("user_id")) != user_id:
+            return None
+        self.task_manager.set_active_session(user_id, str(session["session_id"]))
+        return self.task_manager.get_session(str(session["session_id"]))
 
     def record_user_turn(self, session_id: str, task_id: str, content: str, *, message_type: str = "user_turn") -> None:
         if not session_id.strip() or not content.strip():

@@ -17,6 +17,9 @@ def test_task_manager_creates_and_switches_sessions(tmp_path) -> None:  # noqa: 
     assert active is not None
     assert active["session_id"] == session_b["session_id"]
     assert len(manager.list_sessions("tg_1")) == 2
+    assert session_a["alias"] == "session-a"
+    assert session_b["project_key"] == str(tmp_path.resolve())
+    assert manager.get_session_by_alias("tg_1", "session-b")["session_id"] == session_b["session_id"]
 
     task = manager.create_task("tg_1", "inspect repo", working_directory=str(tmp_path), session_id=str(session_b["session_id"]))
     assert task["session_id"] == session_b["session_id"]
@@ -101,3 +104,6 @@ def test_task_manager_migrates_legacy_tasks_into_sessions(tmp_path) -> None:  # 
     assert len(sessions) == 1
     assert user is not None
     assert user["active_session_id"] == sessions[0]["session_id"]
+    assert sessions[0]["alias"] == "legacy-task"
+    assert sessions[0]["project_key"] == str(tmp_path.resolve())
+    assert sessions[0]["summary"] == {}

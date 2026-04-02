@@ -17,9 +17,12 @@ class SessionRecord(BaseModel):
 
     session_id: str
     user_id: str
+    alias: str = ""
     title: str
     status: Literal["active", "archived", "closed"] = "active"
     working_directory: str = ""
+    project_key: str = ""
+    summary: dict = Field(default_factory=dict)
     created_at: str = Field(default_factory=_utc_now)
     updated_at: str = Field(default_factory=_utc_now)
     last_task_id: str = ""

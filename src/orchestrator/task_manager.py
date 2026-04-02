@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from src.utils.path_utils import find_project_root
 
 TASK_STATUSES = {
     "pending",
@@ -45,6 +48,24 @@ def _derive_session_title(text: str) -> str:
     if len(value) <= 60:
         return value
     return value[:57].rstrip() + "..."
+
+
+def _normalize_session_alias(text: str) -> str:
+    value = " ".join(str(text).strip().split()).lower()
+    if not value:
+        return "session"
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    value = value.strip("-")
+    return value or "session"
+
+
+def _derive_project_key(working_directory: str) -> str:
+    raw = str(working_directory or "").strip()
+    if not raw:
+        return ""
+    resolved = Path(raw).resolve()
+    project_root = find_project_root(resolved)
+    return str((project_root or resolved).resolve())
 
 
 class TaskManager:
@@ -95,9 +116,12 @@ class TaskManager:
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
+                    alias TEXT,
                     title TEXT NOT NULL,
                     status TEXT NOT NULL,
                     working_directory TEXT,
+                    project_key TEXT,
+                    summary TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_task_id TEXT,
@@ -116,6 +140,9 @@ class TaskManager:
             )
         self._ensure_column("tasks", "session_id", "TEXT")
         self._ensure_column("users", "active_session_id", "TEXT")
+        self._ensure_column("sessions", "alias", "TEXT")
+        self._ensure_column("sessions", "project_key", "TEXT")
+        self._ensure_column("sessions", "summary", "TEXT")
         with self._conn:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_user_created_at ON tasks(user_id, created_at DESC)"
@@ -126,7 +153,13 @@ class TaskManager:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user_updated_at ON sessions(user_id, updated_at DESC)"
             )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_user_alias ON sessions(user_id, alias)"
+            )
+        self._backfill_session_defaults()
         self._migrate_legacy_tasks_to_sessions()
+        self._backfill_session_defaults()
+        self._ensure_active_sessions_for_users()
 
     def _column_exists(self, table: str, column: str) -> bool:
         rows = self._conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -160,19 +193,24 @@ class TaskManager:
                     created_at = str(row["created_at"])
                     updated_at = str(row["updated_at"])
                     title = _derive_session_title(str(row["instruction"]))
+                    working_directory = str(row["working_directory"] or "")
+                    alias = self._allocate_session_alias(user_id, title)
                     self._conn.execute(
                         """
                         INSERT OR IGNORE INTO sessions (
-                            session_id, user_id, title, status, working_directory,
-                            created_at, updated_at, last_task_id, metadata
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            session_id, user_id, alias, title, status, working_directory,
+                            project_key, summary, created_at, updated_at, last_task_id, metadata
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             session_id,
                             user_id,
+                            alias,
                             title,
                             "active",
-                            str(row["working_directory"] or ""),
+                            working_directory,
+                            _derive_project_key(working_directory),
+                            json.dumps({}, ensure_ascii=False),
                             created_at,
                             updated_at,
                             task_id,
@@ -220,14 +258,83 @@ class TaskManager:
     def _normalize_session(row: sqlite3.Row) -> Dict[str, Any]:
         session = dict(row)
         session["metadata"] = json.loads(session["metadata"]) if session.get("metadata") else {}
+        raw_summary = session.get("summary")
+        session["summary"] = json.loads(raw_summary) if raw_summary else {}
         return session
+
+    def _list_session_aliases_for_user(self, user_id: str, *, exclude_session_id: str = "") -> List[str]:
+        query = "SELECT alias, session_id FROM sessions WHERE user_id = ?"
+        rows = self._conn.execute(query, (user_id,)).fetchall()
+        aliases: List[str] = []
+        for row in rows:
+            if exclude_session_id and str(row["session_id"]) == exclude_session_id:
+                continue
+            alias = _normalize_session_alias(str(row["alias"] or ""))
+            if alias:
+                aliases.append(alias)
+        return aliases
+
+    def _allocate_session_alias(
+        self,
+        user_id: str,
+        alias: str,
+        *,
+        exclude_session_id: str = "",
+    ) -> str:
+        base_alias = _normalize_session_alias(alias)
+        existing = set(self._list_session_aliases_for_user(user_id, exclude_session_id=exclude_session_id))
+        if base_alias not in existing:
+            return base_alias
+        counter = 2
+        while True:
+            candidate = f"{base_alias}-{counter}"
+            if candidate not in existing:
+                return candidate
+            counter += 1
+
+    def _backfill_session_defaults(self) -> None:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT session_id, user_id, title, alias, working_directory, project_key, summary
+                FROM sessions
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+            if not rows:
+                return
+
+            with self._conn:
+                for row in rows:
+                    session_id = str(row["session_id"])
+                    user_id = str(row["user_id"])
+                    alias = str(row["alias"] or "").strip()
+                    if not alias:
+                        alias = self._allocate_session_alias(user_id, str(row["title"] or "session"), exclude_session_id=session_id)
+
+                    project_key = str(row["project_key"] or "").strip()
+                    if not project_key:
+                        project_key = _derive_project_key(str(row["working_directory"] or ""))
+
+                    summary = str(row["summary"] or "").strip() or json.dumps({}, ensure_ascii=False)
+                    self._conn.execute(
+                        """
+                        UPDATE sessions
+                        SET alias = ?, project_key = ?, summary = ?, updated_at = COALESCE(updated_at, ?)
+                        WHERE session_id = ?
+                        """,
+                        (alias, project_key, summary, _utc_now(), session_id),
+                    )
 
     def create_session(
         self,
         user_id: str,
         *,
         title: str,
+        alias: str = "",
         working_directory: str = "",
+        project_key: str = "",
+        summary: Optional[Dict[str, Any]] = None,
         activate: bool = True,
         status: str = "active",
     ) -> Dict[str, Any]:
@@ -236,20 +343,27 @@ class TaskManager:
         self.ensure_user(user_id)
         session_id = str(uuid.uuid4())
         now = _utc_now()
+        title_value = title.strip() or "New session"
+        alias_value = self._allocate_session_alias(user_id, alias or title_value)
+        project_key_value = project_key.strip() or _derive_project_key(working_directory)
+        summary_payload = summary if isinstance(summary, dict) else {}
         with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO sessions (
-                    session_id, user_id, title, status, working_directory,
-                    created_at, updated_at, last_task_id, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    session_id, user_id, alias, title, status, working_directory,
+                    project_key, summary, created_at, updated_at, last_task_id, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     user_id,
-                    title.strip() or "New session",
+                    alias_value,
+                    title_value,
                     status,
                     working_directory,
+                    project_key_value,
+                    json.dumps(summary_payload, ensure_ascii=False),
                     now,
                     now,
                     "",
@@ -266,6 +380,19 @@ class TaskManager:
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             row = self._conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        if row is None:
+            return None
+        return self._normalize_session(row)
+
+    def get_session_by_alias(self, user_id: str, alias: str) -> Optional[Dict[str, Any]]:
+        normalized = _normalize_session_alias(alias)
+        if not normalized:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM sessions WHERE user_id = ? AND lower(alias) = ? ORDER BY updated_at DESC LIMIT 1",
+                (user_id, normalized),
+            ).fetchone()
         if row is None:
             return None
         return self._normalize_session(row)
@@ -287,15 +414,30 @@ class TaskManager:
         self,
         session_id: str,
         *,
+        alias: Optional[str] = None,
         title: Optional[str] = None,
         status: Optional[str] = None,
         working_directory: Optional[str] = None,
+        project_key: Optional[str] = None,
+        summary: Optional[Dict[str, Any]] = None,
         last_task_id: Optional[str] = None,
     ) -> None:
         if status is not None and status not in SESSION_STATUSES:
             raise ValueError(f"Unsupported session status: {status}")
+        session = self.get_session(session_id)
+        if session is None:
+            raise KeyError(f"Session not found: {session_id}")
         fields: List[str] = []
         params: List[Any] = []
+        if alias is not None:
+            fields.append("alias = ?")
+            params.append(
+                self._allocate_session_alias(
+                    str(session["user_id"]),
+                    alias,
+                    exclude_session_id=session_id,
+                )
+            )
         if title is not None:
             fields.append("title = ?")
             params.append(title.strip() or "New session")
@@ -305,6 +447,15 @@ class TaskManager:
         if working_directory is not None:
             fields.append("working_directory = ?")
             params.append(working_directory)
+        if project_key is not None:
+            fields.append("project_key = ?")
+            params.append(project_key)
+        elif working_directory is not None:
+            fields.append("project_key = ?")
+            params.append(_derive_project_key(working_directory))
+        if summary is not None:
+            fields.append("summary = ?")
+            params.append(json.dumps(summary, ensure_ascii=False))
         if last_task_id is not None:
             fields.append("last_task_id = ?")
             params.append(last_task_id)
@@ -357,7 +508,9 @@ class TaskManager:
                 active_session = self.create_session(
                     user_id,
                     title=_derive_session_title(instruction),
+                    alias=_derive_session_title(instruction),
                     working_directory=working_directory,
+                    project_key=_derive_project_key(working_directory),
                     activate=True,
                 )
             resolved_session_id = str(active_session["session_id"])
@@ -367,7 +520,9 @@ class TaskManager:
                 session = self.create_session(
                     user_id,
                     title=_derive_session_title(instruction),
+                    alias=_derive_session_title(instruction),
                     working_directory=working_directory,
+                    project_key=_derive_project_key(working_directory),
                     activate=True,
                 )
                 resolved_session_id = str(session["session_id"])
@@ -377,7 +532,9 @@ class TaskManager:
                 session = self.create_session(
                     user_id,
                     title=_derive_session_title(instruction),
+                    alias=_derive_session_title(instruction),
                     working_directory=working_directory,
+                    project_key=_derive_project_key(working_directory),
                     activate=True,
                 )
                 resolved_session_id = str(session["session_id"])

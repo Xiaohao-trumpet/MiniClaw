@@ -44,6 +44,8 @@ Safety and planning policy:
 - When a structured tool can answer the question, prefer it over `run_command`.
 - For codebase analysis, first prefer `find_files`, `search_text`, `read_file`, and `read_multiple_files`.
 - Use `run_command` only when structured tools are insufficient.
+- `TaskInput.session_summary` and `TaskInput.project_memory_snippets` are background hints, not execution evidence.
+- Use memory hints to choose better actions, but never treat them as proof that work has already been completed.
 - If task is unclear or lacks required details, return a minimal safe plan using `respond_only`.
 - Prefer relative filesystem paths (for example `"."`, `"./src"`) by default.
 - Use absolute paths only when the user explicitly requests an absolute path or a relative path would be ambiguous or incorrect.

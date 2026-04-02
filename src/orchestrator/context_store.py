@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from datetime import datetime, timezone
@@ -16,11 +17,18 @@ def _timestamp() -> str:
 class ContextStore:
     """Stores artifacts under data/tasks/{task_id}/ and data/sessions/{session_id}/."""
 
-    def __init__(self, base_dir: Path, session_base_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        session_base_dir: Optional[Path] = None,
+        project_base_dir: Optional[Path] = None,
+    ) -> None:
         self.base_dir = base_dir
         self.session_base_dir = session_base_dir or (base_dir.parent / "sessions")
+        self.project_base_dir = project_base_dir or (base_dir.parent / "projects")
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.session_base_dir.mkdir(parents=True, exist_ok=True)
+        self.project_base_dir.mkdir(parents=True, exist_ok=True)
 
     def task_dir(self, task_id: str) -> Path:
         return self.base_dir / task_id
@@ -55,6 +63,27 @@ class ContextStore:
 
     def session_state_file(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "state.json"
+
+    def session_summary_file(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "summary.json"
+
+    def project_dir(self, project_key: str) -> Path:
+        digest = hashlib.sha1(project_key.encode("utf-8")).hexdigest()
+        return self.project_base_dir / digest
+
+    def init_project_context(self, project_key: str) -> Path:
+        project_dir = self.project_dir(project_key)
+        (project_dir / "notes").mkdir(parents=True, exist_ok=True)
+        return project_dir
+
+    def project_meta_file(self, project_key: str) -> Path:
+        return self.project_dir(project_key) / "meta.json"
+
+    def project_memory_file(self, project_key: str) -> Path:
+        return self.project_dir(project_key) / "MEMORY.md"
+
+    def project_note_file(self, project_key: str, date_stamp: str) -> Path:
+        return self.project_dir(project_key) / "notes" / f"{date_stamp}.md"
 
     def append_conversation(self, task_id: str, role: str, content: str) -> None:
         self.init_task_context(task_id)
@@ -183,6 +212,63 @@ class ContextStore:
         self.init_session_context(session_id)
         with self.session_state_file(session_id).open("w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
+
+    def load_session_summary(self, session_id: str, default: Any | None = None) -> Any:
+        self.init_session_context(session_id)
+        path = self.session_summary_file(session_id)
+        if not path.exists():
+            return {} if default is None else default
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def save_session_summary(self, session_id: str, payload: Dict[str, Any]) -> Path:
+        self.init_session_context(session_id)
+        path = self.session_summary_file(session_id)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return path
+
+    def load_project_meta(self, project_key: str, default: Any | None = None) -> Any:
+        self.init_project_context(project_key)
+        path = self.project_meta_file(project_key)
+        if not path.exists():
+            return {} if default is None else default
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def save_project_meta(self, project_key: str, payload: Dict[str, Any]) -> Path:
+        self.init_project_context(project_key)
+        path = self.project_meta_file(project_key)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return path
+
+    def load_project_memory_text(self, project_key: str) -> str:
+        self.init_project_context(project_key)
+        path = self.project_memory_file(project_key)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8", errors="ignore")
+
+    def write_project_memory_text(self, project_key: str, text: str) -> Path:
+        self.init_project_context(project_key)
+        path = self.project_memory_file(project_key)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def append_project_note(self, project_key: str, date_stamp: str, text: str) -> Path:
+        self.init_project_context(project_key)
+        path = self.project_note_file(project_key, date_stamp)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(text.rstrip("\n") + "\n")
+        return path
+
+    def load_project_note_text(self, project_key: str, date_stamp: str) -> str:
+        self.init_project_context(project_key)
+        path = self.project_note_file(project_key, date_stamp)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8", errors="ignore")
 
     def load_recent_session_conversation(
         self,

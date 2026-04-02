@@ -78,12 +78,16 @@ class ActionPlanner:
         instruction: str,
         working_directory: str = "",
         recent_conversation: Optional[List[dict]] = None,
+        session_summary: Optional[Dict[str, Any]] = None,
+        project_memory_snippets: Optional[List[dict]] = None,
     ) -> str:
         payload = {
             "task_id": task_id,
             "instruction": instruction,
             "working_directory": working_directory,
             "recent_conversation": recent_conversation or [],
+            "session_summary": session_summary or {},
+            "project_memory_snippets": project_memory_snippets or [],
         }
         return "## TaskInput\n" f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
 
@@ -93,6 +97,8 @@ class ActionPlanner:
         instruction: str,
         working_directory: str = "",
         recent_conversation: Optional[List[dict]] = None,
+        session_summary: Optional[Dict[str, Any]] = None,
+        project_memory_snippets: Optional[List[dict]] = None,
     ) -> PlannerResult:
         logger.info(
             "event=planner_request task_id=%s provider=%s model=%s prompt_file=%s working_directory=%s instruction=%s",
@@ -108,6 +114,8 @@ class ActionPlanner:
             instruction=instruction,
             working_directory=working_directory,
             recent_conversation=recent_conversation,
+            session_summary=session_summary,
+            project_memory_snippets=project_memory_snippets,
         )
         cwd = Path(working_directory).resolve() if working_directory else None
         request = ModelRequest(

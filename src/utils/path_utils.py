@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 def resolve_path(path: Path, working_directory: Path | None) -> Path:
     """Resolve a path relative to the working directory when needed."""
 
     return (path if path.is_absolute() else (working_directory or Path.cwd()) / path).resolve()
+
+
+def find_project_root(path: Path | None) -> Optional[Path]:
+    """Best-effort project root discovery using the nearest .git marker."""
+
+    if path is None:
+        return None
+    resolved = path.resolve()
+    start = resolved if resolved.is_dir() else resolved.parent
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
 
 
 def is_within_roots(path: Path, roots: Iterable[Path]) -> bool:

@@ -34,6 +34,7 @@ class Settings(BaseModel):
     database_path: Path = Field(default=Path("data/src.db"))
     task_data_dir: Path = Field(default=Path("data/tasks"))
     session_data_dir: Path = Field(default=Path("data/sessions"))
+    project_data_dir: Path = Field(default=Path("data/projects"))
     planner_prompt_file: Path = Field(default=Path("prompts/action_planner.md"))
     allowed_workdirs: List[Path] = Field(default_factory=lambda: [Path.cwd()])
     session_recent_turns: int = 12
@@ -132,6 +133,7 @@ def get_settings() -> Settings:
         database_path=Path(os.getenv("SRC_DB_PATH", "data/src.db")),
         task_data_dir=Path(os.getenv("SRC_TASK_DATA_DIR", "data/tasks")),
         session_data_dir=Path(os.getenv("SRC_SESSION_DATA_DIR", "data/sessions")),
+        project_data_dir=Path(os.getenv("SRC_PROJECT_DATA_DIR", "data/projects")),
         planner_prompt_file=Path(os.getenv("SRC_PLANNER_PROMPT_FILE", "prompts/action_planner.md")),
         allowed_workdirs=_parse_allowed_workdirs(os.getenv("SRC_ALLOWED_WORKDIRS")),
         session_recent_turns=max(1, int(os.getenv("SRC_SESSION_RECENT_TURNS", "12"))),

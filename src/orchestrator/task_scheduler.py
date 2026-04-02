@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.executors.executor_router import ExecutorRouter
 from src.orchestrator.context_store import ContextStore
+from src.orchestrator.memory_service import MemoryService
 from src.orchestrator.progress_aggregator import (
     append_update,
     build_progress_details,
@@ -54,6 +55,7 @@ class TaskScheduler:
         reporter: Reporter,
         *,
         session_recent_turns: int = 12,
+        memory_service: Optional[MemoryService] = None,
     ) -> None:
         self.task_manager = task_manager
         self.context_store = context_store
@@ -62,6 +64,7 @@ class TaskScheduler:
         self.safety_guard = safety_guard
         self.reporter = reporter
         self.session_recent_turns = max(1, session_recent_turns)
+        self.memory_service = memory_service or MemoryService(task_manager, context_store)
 
         self._queue: queue.Queue[str] = queue.Queue()
         self._queue_lock = threading.Lock()
@@ -210,6 +213,7 @@ class TaskScheduler:
                 if task:
                     self.task_manager.set_status(task_id, "failed", current_step="execution crashed")
                     self.task_manager.append_history(task_id, {"type": "error", "content": str(exc)})
+                    self._flush_memory_for_task(task, success=False, final_text=str(exc))
                     snapshot = self._load_progress_snapshot(task)
                     snapshot = record_failed(snapshot, summary=str(exc))
                     self._persist_progress_snapshot(task_id, snapshot)
@@ -388,6 +392,7 @@ class TaskScheduler:
                 self._persist_progress_snapshot(task_id, snapshot)
                 self.reporter.progress_update(user_id, snapshot)
                 self._write_final_summary(task_id, success=False)
+                self._flush_memory_for_task(task, success=False, final_text=summary)
                 if session_id:
                     self.context_store.append_session_conversation(
                         session_id,
@@ -412,6 +417,7 @@ class TaskScheduler:
         self._persist_progress_snapshot(task_id, snapshot)
         self.reporter.progress_update(user_id, snapshot)
         final_text = final_response or summary
+        self._flush_memory_for_task(task, success=True, final_text=final_text)
         if session_id and final_text.strip():
             self.context_store.append_session_conversation(
                 session_id,
@@ -468,12 +474,29 @@ class TaskScheduler:
                 if session_id
                 else []
             )
+            session = self.task_manager.get_session(session_id) if session_id else None
+            project_key = str(session.get("project_key", "") if session else "")
+            if working_directory and (session is None or not project_key):
+                project_key = self.memory_service.derive_project_key(working_directory)
+                if session_id and session is not None:
+                    self.task_manager.update_session(
+                        session_id,
+                        working_directory=working_directory,
+                        project_key=project_key,
+                    )
+            memory_context = self.memory_service.build_planner_memory_context(
+                session_id=session_id,
+                instruction=plan_input,
+                project_key=project_key,
+            )
             try:
                 planner_result = self.planner.plan(
                     task_id=task_id,
                     instruction=plan_input,
                     working_directory=working_directory,
                     recent_conversation=recent_conversation,
+                    session_summary=memory_context.get("session_summary"),
+                    project_memory_snippets=memory_context.get("project_memory_snippets"),
                 )
             except PlannerExecutionError as exc:
                 self.task_manager.set_status(task_id, "failed", current_step="planning failed")
@@ -498,6 +521,7 @@ class TaskScheduler:
                 self.context_store.write_text_artifact(task_id, "planner_error.txt", error_text)
                 snapshot = record_failed(snapshot, summary=f"Planning failed: {exc}")
                 self._persist_progress_snapshot(task_id, snapshot)
+                self._flush_memory_for_task(task, success=False, final_text=f"Planning failed: {exc}")
                 self.reporter.progress_update(user_id, snapshot)
                 self.reporter.task_failed(user_id, task_id, f"Planning failed: {exc}")
                 logger.warning(
@@ -677,6 +701,7 @@ class TaskScheduler:
             )
         self.reporter.task_failed(user_id, task_id, safety_decision.reason)
         self._write_final_summary(task_id, success=False)
+        self._flush_memory_for_task(task, success=False, final_text=summary)
         self._mark_session_active_task(session_id, "", clear_active=True)
 
     def _record_action(
@@ -788,6 +813,36 @@ class TaskScheduler:
                         return response
 
         return ""
+
+    def _flush_memory_for_task(self, task: Dict[str, Any], *, success: bool, final_text: str) -> None:
+        session_id = str(task.get("session_id", "") or "")
+        if session_id:
+            self.memory_service.update_session_summary(
+                session_id=session_id,
+                task=task,
+                final_text=final_text,
+                success=success,
+            )
+
+        working_directory = str(task.get("working_directory", "") or "")
+        session = self.task_manager.get_session(session_id) if session_id else None
+        project_key = str(session.get("project_key", "") if session else "")
+        if not project_key and working_directory:
+            project_key = self.memory_service.derive_project_key(working_directory)
+            if session_id and project_key:
+                self.task_manager.update_session(session_id, project_key=project_key)
+        if not project_key:
+            return
+
+        execution_log = self.context_store.load_json_artifact(str(task["task_id"]), "execution_log.json", default=[])
+        execution_records = execution_log if isinstance(execution_log, list) else []
+        self.memory_service.flush_project_memory(
+            project_key=project_key,
+            working_directory=working_directory,
+            task=task,
+            execution_records=execution_records,
+            final_text=final_text,
+        )
 
     def _load_progress_snapshot(self, task: Dict[str, Any]) -> ProgressSnapshot:
         task_id = str(task["task_id"])

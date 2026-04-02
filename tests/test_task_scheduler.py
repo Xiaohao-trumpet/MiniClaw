@@ -32,7 +32,15 @@ class FakePlanner:
         self._plans = plans
         self.calls = 0
 
-    def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+    def plan(
+        self,
+        task_id: str,
+        instruction: str,
+        working_directory: str = "",
+        recent_conversation=None,
+        session_summary=None,
+        project_memory_snippets=None,
+    ):  # noqa: ANN001, ARG002
         plan = self._plans[min(self.calls, len(self._plans) - 1)]
         self.calls += 1
         return SimpleNamespace(
@@ -124,6 +132,10 @@ def test_task_transitions_to_completed(tmp_path) -> None:  # noqa: ANN001
     assert context_store.artifact_path(task["task_id"], "planner_cleaned.txt").exists()
     assert context_store.artifact_path(task["task_id"], "execution_log.json").exists()
     assert context_store.artifact_path(task["task_id"], "summary.txt").exists()
+    session = task_manager.get_session(str(task["session_id"]))
+    assert session is not None
+    assert context_store.session_summary_file(str(task["session_id"])).exists()
+    assert context_store.project_memory_file(str(session["project_key"])).exists()
 
 
 def test_task_waits_for_confirmation_then_resumes(tmp_path) -> None:  # noqa: ANN001
@@ -183,7 +195,15 @@ def test_planning_failure_marks_task_failed_and_writes_artifacts(tmp_path) -> No
     )
 
     class FailingPlanner:
-        def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+        def plan(
+            self,
+            task_id: str,
+            instruction: str,
+            working_directory: str = "",
+            recent_conversation=None,
+            session_summary=None,
+            project_memory_snippets=None,
+        ):  # noqa: ANN001, ARG002
             raise PlannerExecutionError(
                 "Planner returned a schema/contract instead of a runtime ActionPlan instance.",
                 raw_output='{"goal":{"type":"string"}}',
@@ -363,10 +383,29 @@ def test_scheduler_passes_recent_session_conversation_to_planner(tmp_path) -> No
         def __init__(self, plans: List[ActionPlan]) -> None:
             super().__init__(plans)
             self.seen_recent_conversation = None
+            self.seen_session_summary = None
+            self.seen_project_memory_snippets = None
 
-        def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+        def plan(
+            self,
+            task_id: str,
+            instruction: str,
+            working_directory: str = "",
+            recent_conversation=None,
+            session_summary=None,
+            project_memory_snippets=None,
+        ):  # noqa: ANN001, ARG002
             self.seen_recent_conversation = recent_conversation
-            return super().plan(task_id, instruction, working_directory, recent_conversation)
+            self.seen_session_summary = session_summary
+            self.seen_project_memory_snippets = project_memory_snippets
+            return super().plan(
+                task_id,
+                instruction,
+                working_directory,
+                recent_conversation,
+                session_summary,
+                project_memory_snippets,
+            )
 
     settings = Settings(
         database_path=tmp_path / "src.db",
@@ -400,6 +439,14 @@ def test_scheduler_passes_recent_session_conversation_to_planner(tmp_path) -> No
         task_id="task-old",
         message_type="final_answer",
     )
+    context_store.save_session_summary(
+        str(session["session_id"]),
+        {"goal": "understand the repo", "known_facts": ["it is a local runtime"]},
+    )
+    context_store.write_project_memory_text(
+        str(session["project_key"]),
+        "# Project Memory\n\n## Repo Facts\n\n- the repo is called MiniClaw\n",
+    )
 
     task = task_manager.create_task(
         "tg_6",
@@ -411,4 +458,6 @@ def test_scheduler_passes_recent_session_conversation_to_planner(tmp_path) -> No
 
     assert planner.seen_recent_conversation is not None
     assert any(item["content"] == "what is this repo" for item in planner.seen_recent_conversation)
+    assert planner.seen_session_summary["goal"] == "understand the repo"
+    assert planner.seen_project_memory_snippets
     assert context_store.artifact_path(task["task_id"], "progress_details.txt").exists()

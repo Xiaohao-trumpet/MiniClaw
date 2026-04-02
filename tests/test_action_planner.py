@@ -82,3 +82,41 @@ def test_action_planner_repairs_validation_error_once(tmp_path: Path) -> None:
     assert result.repair_applied is True
     assert len(adapter.calls) == 2
     assert "validation_error" in adapter.calls[1].prompt
+
+
+def test_action_planner_includes_memory_context_in_task_input(tmp_path: Path) -> None:
+    prompt_file = tmp_path / "prompt.md"
+    prompt_file.write_text("Return JSON only.", encoding="utf-8")
+
+    valid_plan = json.dumps(
+        {
+            "task_id": "task-2",
+            "goal": "Inspect workspace.",
+            "actions": [
+                {
+                    "action_type": "respond_only",
+                    "args": {"message": "ok"},
+                    "reason": "Respond safely.",
+                    "risk_level": "low",
+                    "requires_confirmation": False,
+                }
+            ],
+            "final_response_style": "concise",
+            "planner_notes": "",
+        },
+        ensure_ascii=False,
+    )
+
+    adapter = RecordingAdapter([valid_plan])
+    planner = ActionPlanner(model_adapter=adapter, prompt_file=prompt_file)
+    planner.plan(
+        task_id="task-2",
+        instruction="summarize repo",
+        working_directory=str(tmp_path),
+        session_summary={"goal": "understand repo"},
+        project_memory_snippets=[{"source": "MEMORY.md", "text": "- repo is MiniClaw"}],
+    )
+
+    payload = json.loads(adapter.calls[0].prompt.split("\n", 1)[1])
+    assert payload["session_summary"]["goal"] == "understand repo"
+    assert payload["project_memory_snippets"][0]["source"] == "MEMORY.md"

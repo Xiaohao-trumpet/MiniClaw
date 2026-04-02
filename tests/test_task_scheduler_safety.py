@@ -30,7 +30,15 @@ class FakePlanner:
     def __init__(self, plan: ActionPlan) -> None:
         self.plan_payload = plan
 
-    def plan(self, task_id: str, instruction: str, working_directory: str = "", recent_conversation=None):  # noqa: ANN001, ARG002
+    def plan(
+        self,
+        task_id: str,
+        instruction: str,
+        working_directory: str = "",
+        recent_conversation=None,
+        session_summary=None,
+        project_memory_snippets=None,
+    ):  # noqa: ANN001, ARG002
         return SimpleNamespace(
             plan=self.plan_payload,
             raw_output=json.dumps(self.plan_payload.model_dump(), ensure_ascii=False),

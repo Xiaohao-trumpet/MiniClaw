@@ -21,6 +21,7 @@ from src.gateway.telegram_adapter import (
 )
 from src.models.factory import build_model_adapter
 from src.orchestrator.context_store import ContextStore
+from src.orchestrator.memory_service import MemoryService
 from src.orchestrator.reporter import Reporter
 from src.orchestrator.session_service import SessionService
 from src.orchestrator.task_manager import TaskManager
@@ -64,12 +65,13 @@ def _build_adapter() -> TelegramAdapter:
 
 telegram_adapter = _build_adapter()
 gateway = MessageGateway(telegram_adapter)
-context_store = ContextStore(settings.task_data_dir, settings.session_data_dir)
+context_store = ContextStore(settings.task_data_dir, settings.session_data_dir, settings.project_data_dir)
 session_service = SessionService(
     task_manager,
     context_store,
     auto_create_on_run=settings.auto_create_session_on_run,
 )
+memory_service = MemoryService(task_manager, context_store)
 model_adapter = build_model_adapter(settings, command_runner=command_runner)
 planner = ActionPlanner(
     model_adapter=model_adapter,
@@ -89,6 +91,7 @@ scheduler = TaskScheduler(
     safety_guard,
     reporter,
     session_recent_turns=settings.session_recent_turns,
+    memory_service=memory_service,
 )
 
 _allowed_user_ids = {
@@ -116,6 +119,7 @@ class UserConfirmRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     user_id: str
     title: str = ""
+    alias: str = ""
     working_directory: str = ""
 
 
@@ -144,12 +148,12 @@ def _help_text() -> str:
         "[MiniClaw] Telegram commands:\n"
         "/start - show onboarding\n"
         f"{register_usage} - activate account\n"
+        "/create <name> - create and switch to a session\n"
+        "/switch <name> - switch active session by alias or session_id\n"
+        "/where - show current session context\n"
         "/run <instruction> - create a task\n"
         "/sessions - list your sessions\n"
-        "/session - show current session\n"
-        "/session new [title] - create and switch to a new session\n"
-        "/session use <session_id> - switch active session\n"
-        "/session show [session_id] - show session detail\n"
+        "/session - compatibility alias for session inspection/switching\n"
         "/details <task_id> - send full planning/execution artifacts\n"
         "/pause <task_id> | /resume <task_id> | /cancel <task_id>\n"
         "/append <task_id> <instruction>\n"
@@ -179,7 +183,8 @@ def _welcome_text(user_id: str) -> str:
         "[MiniClaw] Welcome.\n"
         f"Current status: {status}.\n"
         f"To activate: {reg_tip}.\n"
-        "Then send: /run inspect the current project and summarize its entrypoints"
+        "Then send: /create main\n"
+        "Or run directly: /run inspect the current project and summarize its entrypoints"
     )
 
 
@@ -279,14 +284,18 @@ def _list_user_sessions(user_id: str, limit: int = 20) -> dict:
     for item in sessions:
         marker = "*" if str(item["session_id"]) == active_id else " "
         lines.append(
-            f"{marker} {item['session_id']} | {item['title']} | {item['status']} | last_task={item.get('last_task_id', '')}"
+            f"{marker} {item.get('alias', '') or item['session_id']} | {item['title']} | {item['status']} | last_task={item.get('last_task_id', '')}"
         )
     gateway.send_message(user_id, "\n".join(lines))
     return {"ok": True, "detail": "sessions listed"}
 
 
-def _show_session(user_id: str, session_id: str = "") -> dict:
-    session = session_service.get_session(session_id) if session_id else session_service.get_active_session(user_id)
+def _show_session(user_id: str, session_ref: str = "") -> dict:
+    session = (
+        session_service.resolve_session(user_id, session_ref)
+        if session_ref
+        else session_service.get_active_session(user_id)
+    )
     if session is None or str(session.get("user_id")) != user_id:
         gateway.send_message(user_id, "[MiniClaw] session not found.")
         return {"ok": False, "detail": "session not found"}
@@ -295,13 +304,34 @@ def _show_session(user_id: str, session_id: str = "") -> dict:
         user_id,
         (
             f"[MiniClaw] session_id: {session['session_id']}\n"
+            f"alias: {session.get('alias', '')}\n"
             f"title: {session['title']}\n"
             f"status: {session['status']}\n"
             f"working_directory: {session.get('working_directory', '')}\n"
+            f"project_key: {session.get('project_key', '')}\n"
             f"last_task_id: {session.get('last_task_id', '')}"
         ),
     )
     return {"ok": True, "detail": "session shown", "session_id": session["session_id"]}
+
+
+def _where_am_i(user_id: str) -> dict:
+    session = session_service.get_active_session(user_id)
+    if session is None:
+        msg = "no active session. create one with /create <name>"
+        gateway.send_message(user_id, f"[MiniClaw] {msg}")
+        return {"ok": False, "detail": msg}
+
+    gateway.send_message(
+        user_id,
+        (
+            f"[MiniClaw] session: {session.get('alias', '') or session['session_id']}\n"
+            f"cwd: {session.get('working_directory', '')}\n"
+            f"project: {session.get('project_key', '')}\n"
+            f"last_task: {session.get('last_task_id', '')}"
+        ),
+    )
+    return {"ok": True, "detail": "where", "session_id": session["session_id"]}
 
 
 def _send_task_details(user_id: str, task_id: str) -> dict:
@@ -360,6 +390,42 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
             msg = "run usage: /run <instruction>"
             gateway.send_message(user_id, f"[MiniClaw] {msg}")
             return {"ok": False, "detail": msg}
+    elif command == "create":
+        name = args.strip()
+        if not name:
+            msg = "create usage: /create <name>"
+            gateway.send_message(user_id, f"[MiniClaw] {msg}")
+            return {"ok": False, "detail": msg}
+        effective_working_directory = _resolve_task_working_directory(working_directory)
+        session = session_service.create_session(
+            user_id,
+            title=name,
+            alias=name,
+            working_directory=effective_working_directory,
+            activate=True,
+        )
+        gateway.send_message(
+            user_id,
+            f"[MiniClaw] active session set to {session.get('alias', '') or session['session_id']} ({session['title']}).",
+        )
+        return {"ok": True, "detail": "session created", "session_id": session["session_id"]}
+    elif command == "switch":
+        target = args.strip()
+        if not target:
+            msg = "switch usage: /switch <name>"
+            gateway.send_message(user_id, f"[MiniClaw] {msg}")
+            return {"ok": False, "detail": msg}
+        session = session_service.use_session(user_id, target)
+        if session is None:
+            gateway.send_message(user_id, f"[MiniClaw] session not found: {target}")
+            return {"ok": False, "detail": "session not found"}
+        gateway.send_message(
+            user_id,
+            f"[MiniClaw] active session set to {session.get('alias', '') or session['session_id']} ({session['title']}).",
+        )
+        return {"ok": True, "detail": "session switched", "session_id": session["session_id"]}
+    elif command == "where":
+        return _where_am_i(user_id)
     elif command == "sessions":
         return _list_user_sessions(user_id)
     elif command == "details":
@@ -378,17 +444,18 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
             session = session_service.create_session(
                 user_id,
                 title=remainder or "New session",
+                alias=remainder or "session",
                 working_directory=effective_working_directory,
                 activate=True,
             )
             gateway.send_message(
                 user_id,
-                f"[MiniClaw] active session set to {session['session_id']} ({session['title']}).",
+                f"[MiniClaw] active session set to {session.get('alias', '') or session['session_id']} ({session['title']}).",
             )
             return {"ok": True, "detail": "session created", "session_id": session["session_id"]}
         if action == "use":
             if not remainder:
-                msg = "session use usage: /session use <session_id>"
+                msg = "session use usage: /session use <name>"
                 gateway.send_message(user_id, f"[MiniClaw] {msg}")
                 return {"ok": False, "detail": msg}
             session = session_service.use_session(user_id, remainder)
@@ -397,7 +464,7 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
                 return {"ok": False, "detail": "session not found"}
             gateway.send_message(
                 user_id,
-                f"[MiniClaw] active session set to {session['session_id']} ({session['title']}).",
+                f"[MiniClaw] active session set to {session.get('alias', '') or session['session_id']} ({session['title']}).",
             )
             return {"ok": True, "detail": "session switched", "session_id": session["session_id"]}
         if action == "show":
@@ -474,7 +541,7 @@ def _handle_user_message(user_id: str, message: str, working_directory: str = ""
         title_hint=raw,
     )
     if session is None:
-        msg = "no active session; create one with /session new <title>"
+        msg = "no active session; create one with /create <name>"
         gateway.send_message(user_id, f"[MiniClaw] {msg}")
         return {"ok": False, "detail": msg}
     task = task_manager.create_task(
@@ -622,7 +689,8 @@ async def create_session(payload: CreateSessionRequest) -> dict:
     session = await asyncio.to_thread(
         session_service.create_session,
         payload.user_id,
-        title=payload.title,
+        title=payload.title or payload.alias,
+        alias=payload.alias or payload.title,
         working_directory=_resolve_task_working_directory(payload.working_directory),
         activate=True,
     )
